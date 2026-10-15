@@ -42,7 +42,7 @@
               <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../../install.html">Installation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../tutorial.html">Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../tutorial.html">Getting Started</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../api.html">Python API</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../contributing.html">Contributing</a></li>
 </ul>
@@ -74,6 +74,8 @@
   <h1>Source code for lys_instr.DataStorage</h1><div class="highlight"><pre>
 <span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">datetime</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">functools</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">threading</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">lys</span><span class="w"> </span><span class="kn">import</span> <span class="n">Wave</span>
@@ -100,6 +102,17 @@
     <span class="k">if</span> <span class="n">text</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;.&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span> <span class="ow">in</span> <span class="n">_RESERVED_NAMES</span><span class="p">:</span>
         <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;&#39;</span><span class="si">{</span><span class="n">text</span><span class="si">}</span><span class="s2">&#39; is a reserved name&quot;</span>
     <span class="k">return</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_locked</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Run the method while holding the lock of the DataStorage instance.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">wrapper</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">func</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">wrapper</span>
 
 
 <div class="viewcode-block" id="DataStorage">
@@ -151,6 +164,8 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_overwrite</span> <span class="o">=</span> <span class="kc">True</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_threads</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_reservations</span> <span class="o">=</span> <span class="p">{}</span>   <span class="c1"># key: connected detector, or None for reserve() called directly</span>
+        <span class="c1"># The methods may be called from the scan, acquisition and main threads (signals of detectors are connected directly).</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">RLock</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_notes</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_saveError</span> <span class="o">=</span> <span class="kc">None</span>
 
@@ -284,7 +299,7 @@
 <span class="sd">        Check whether the current save path can be used.</span>
 
 <span class="sd">        ``base`` must not be empty. ``folder`` may be empty (files are saved directly under ``base``) and may contain sub folders separated by &#39;/&#39; or &#39;\\&#39;.</span>
-<span class="sd">        ``name`` must not be empty or contain path separators.</span>
+<span class="sd">        ``name`` must not be empty, and may contain sub folders separated by &#39;/&#39; or &#39;\\&#39;.</span>
 <span class="sd">        Leading and trailing spaces, and characters or names that are invalid on Windows are not allowed.</span>
 
 <span class="sd">        Returns:</span>
@@ -303,12 +318,12 @@
                     <span class="n">errors</span><span class="p">[</span><span class="s2">&quot;folder&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">reason</span>
                     <span class="k">break</span>
 
-        <span class="k">if</span> <span class="s2">&quot;/&quot;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="ow">or</span> <span class="s2">&quot;</span><span class="se">\\</span><span class="s2">&quot;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">:</span>
-            <span class="n">errors</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;must not contain &#39;/&#39; or &#39;</span><span class="se">\\</span><span class="s2">&#39;&quot;</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="n">reason</span> <span class="o">=</span> <span class="n">_checkComponent</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+        <span class="c1"># The name may contain sub folders (e.g., &quot;loop_[2]/x_[1]&quot; in scans).</span>
+        <span class="k">for</span> <span class="n">part</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\\</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;/&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">):</span>
+            <span class="n">reason</span> <span class="o">=</span> <span class="n">_checkComponent</span><span class="p">(</span><span class="n">part</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">reason</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="n">errors</span><span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">reason</span>
+                <span class="k">break</span>
         <span class="k">return</span> <span class="n">errors</span></div>
 
 
@@ -317,6 +332,7 @@
 
 <div class="viewcode-block" id="DataStorage.getNumber">
 <a class="viewcode-back" href="../../lys_instr_/api_/storage.html#lys_instr.DataStorage.DataStorage.getNumber">[docs]</a>
+    <span class="nd">@_locked</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">getNumber</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Return the next available file number for saving.</span>
@@ -331,7 +347,8 @@
             <span class="k">return</span> <span class="kc">None</span>
 
         <span class="c1"># List the folder once instead of checking each candidate, which is slow on network drives.</span>
-        <span class="n">folder</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">base</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">folder</span><span class="p">)</span>
+        <span class="c1"># The name may contain sub folders, so the folder containing the files is listed.</span>
+        <span class="n">folder</span><span class="p">,</span> <span class="n">name</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">base</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">folder</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">))</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="n">existing</span> <span class="o">=</span> <span class="p">{</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normcase</span><span class="p">(</span><span class="n">f</span><span class="p">)</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="n">folder</span><span class="p">)}</span>
         <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
@@ -339,7 +356,7 @@
         <span class="n">reserved</span> <span class="o">=</span> <span class="p">{</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normcase</span><span class="p">(</span><span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reservedPaths</span><span class="p">()}</span>
         <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
         <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
-            <span class="n">filename</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">.npz&quot;</span>
+            <span class="n">filename</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">.npz&quot;</span>
             <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normcase</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">existing</span> <span class="ow">and</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normcase</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">folder</span><span class="p">,</span> <span class="n">filename</span><span class="p">))</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">reserved</span><span class="p">:</span>
                 <span class="k">return</span> <span class="n">i</span>
             <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span></div>
@@ -373,12 +390,15 @@
 <span class="sd">        Args:</span>
 <span class="sd">            detector (``MultiDetectorInterface``): Detector that emits ``dataAcquired`` and ``busyStateChanged`` signals.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">detector</span><span class="o">.</span><span class="n">dataAcquired</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="k">lambda</span> <span class="n">data</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">detector</span><span class="o">=</span><span class="n">detector</span><span class="p">))</span>
-        <span class="n">detector</span><span class="o">.</span><span class="n">busyStateChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="k">lambda</span> <span class="n">b</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_busyStateChanged</span><span class="p">(</span><span class="n">detector</span><span class="p">,</span> <span class="n">b</span><span class="p">))</span>
+        <span class="c1"># Direct connections, so that a file is reserved before the acquisition starts (e.g., before a scan changes the file name for the next point),</span>
+        <span class="c1"># and the data is stored in the thread emitting it. The methods are protected by the lock.</span>
+        <span class="n">detector</span><span class="o">.</span><span class="n">dataAcquired</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="k">lambda</span> <span class="n">data</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">detector</span><span class="o">=</span><span class="n">detector</span><span class="p">),</span> <span class="n">QtCore</span><span class="o">.</span><span class="n">Qt</span><span class="o">.</span><span class="n">DirectConnection</span><span class="p">)</span>
+        <span class="n">detector</span><span class="o">.</span><span class="n">busyStateChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="k">lambda</span> <span class="n">b</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_busyStateChanged</span><span class="p">(</span><span class="n">detector</span><span class="p">,</span> <span class="n">b</span><span class="p">),</span> <span class="n">QtCore</span><span class="o">.</span><span class="n">Qt</span><span class="o">.</span><span class="n">DirectConnection</span><span class="p">)</span>
         <span class="n">detector</span><span class="o">.</span><span class="n">stopped</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_stopped</span><span class="p">(</span><span class="n">detector</span><span class="p">))</span>
         <span class="n">detector</span><span class="o">.</span><span class="n">startRequested</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_checkStart</span><span class="p">,</span> <span class="n">QtCore</span><span class="o">.</span><span class="n">Qt</span><span class="o">.</span><span class="n">DirectConnection</span><span class="p">)</span></div>
 
 
+    <span class="nd">@_locked</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_checkStart</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Reject acquisition of the connected detector if the data cannot be saved.</span>
@@ -413,6 +433,7 @@
             <span class="n">request</span><span class="p">[</span><span class="s2">&quot;errors&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">errorOccurred</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
 
+    <span class="nd">@_locked</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_busyStateChanged</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">detector</span><span class="p">,</span> <span class="n">busy</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Reserve storage when the detector becomes busy, except for continuous runs (streaming) that are not saved.</span>
@@ -424,6 +445,7 @@
         <span class="k">if</span> <span class="n">busy</span> <span class="ow">and</span> <span class="n">detector</span><span class="o">.</span><span class="n">iteration</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_reserve</span><span class="p">(</span><span class="n">detector</span><span class="p">,</span> <span class="n">detector</span><span class="o">.</span><span class="n">dataShape</span><span class="p">,</span> <span class="n">repeat</span><span class="o">=</span><span class="n">detector</span><span class="o">.</span><span class="n">iteration</span><span class="p">,</span> <span class="n">axes</span><span class="o">=</span><span class="n">detector</span><span class="o">.</span><span class="n">axes</span><span class="p">,</span> <span class="n">exposure</span><span class="o">=</span><span class="n">detector</span><span class="o">.</span><span class="n">exposure</span><span class="p">)</span>
 
+    <span class="nd">@_locked</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_stopped</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">detector</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Save any remaining buffered data when the detector stops.</span>
@@ -458,6 +480,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_reserve</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">shape</span><span class="p">,</span> <span class="n">fillValue</span><span class="p">)</span></div>
 
 
+    <span class="nd">@_locked</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_reserve</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">shape</span><span class="p">,</span> <span class="n">fillValue</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">repeat</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">axes</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">exposure</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Reserve storage for ``key`` (a connected detector, or None for direct calls).</span>
@@ -504,6 +527,7 @@
 
 <div class="viewcode-block" id="DataStorage.update">
 <a class="viewcode-back" href="../../lys_instr_/api_/storage.html#lys_instr.DataStorage.DataStorage.update">[docs]</a>
+    <span class="nd">@_locked</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">detector</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Update the buffered data array with new values.</span>
@@ -539,6 +563,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_save</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">axes</span><span class="p">)</span></div>
 
 
+    <span class="nd">@_locked</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_save</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">axes</span><span class="p">):</span>
         <span class="n">reservation</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reservations</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">reservation</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -556,6 +581,7 @@
         <span class="n">thread</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">savingStateChanged</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">saving</span><span class="p">)</span>
 
+    <span class="nd">@_locked</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_savingFinished</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Handle completion of a save thread.</span>
@@ -609,10 +635,13 @@
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Wait for the files being written. Called when the application quits.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">for</span> <span class="n">thread</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_threads</span><span class="p">):</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="n">threads</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_threads</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">thread</span> <span class="ow">in</span> <span class="n">threads</span><span class="p">:</span>
             <span class="n">thread</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
 
     <span class="nd">@property</span>
+    <span class="nd">@_locked</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">saving</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Whether a save operation is in progress.</span>
@@ -623,6 +652,7 @@
         <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_threads</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reservations</span><span class="p">)</span>
 
     <span class="nd">@property</span>
+    <span class="nd">@_locked</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">reservedCount</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Number of files reserved but not yet passed to save threads.</span>
@@ -633,6 +663,7 @@
         <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_reservations</span><span class="p">)</span>
 
     <span class="nd">@property</span>
+    <span class="nd">@_locked</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">savingCount</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Number of files currently being written.</span>

@@ -31,6 +31,9 @@ The following threads are involved.
    * - **Acquisition thread**
      - Detectors only. Created and started by every ``startAcq()``. Finished when ``_run()`` returns.
      - ``_run()``, and ``_get()`` every time ``updated`` is emitted.
+   * - **Scan thread**
+     - Scans only. Created and started by every ``MultiScan.start()``. Finished when the scan is completed or stopped.
+     - The whole scan: ``set(wait=True)`` of the motors and ``startAcq(wait=True)`` of the detector at each point.
 
 The device object itself (a ``QThread`` subclass) belongs to the thread that created it, usually the main thread.
 Therefore, slots of the device object called through queued connections run in the main thread.
@@ -235,14 +238,17 @@ In lys_instr:
      - value, busy, alive and data signals
      - Main thread (auto connection).
    * - ``DataStorage``
-     - ``dataAcquired``, ``busyStateChanged``, ``stopped``
-     - Main thread (lambdas connected in the main thread).
+     - ``dataAcquired``, ``busyStateChanged``, ``startRequested``
+     - Emitting thread (direct connection): the caller (or scan) thread reserves a file before the acquisition starts, and the acquisition thread stores the data.
    * - ``DataStorage``
-     - ``startRequested``
-     - Caller thread of ``startAcq()`` (direct connection).
+     - ``stopped``
+     - Main thread (a lambda connected in the main thread).
    * - ``PreCorrector``
      - ``busyStateChanged`` of motors
      - Emitting thread, while holding the mutex of the motor (direct connection).
+
+``DataStorage`` is called from several threads in this way, so its methods are protected by a lock.
+Its own signals (e.g., ``pathChanged``, ``savingStateChanged``) may also be emitted from these threads; the GUI receives them in the main thread.
 
 Because the signals emitted by one thread are delivered to a receiver in another thread in the order of emission,
 a receiver in the main thread always receives all ``dataAcquired`` of an acquisition before its ``busyStateChanged(False)``, and ``stopped`` after them.
@@ -260,15 +266,18 @@ Write your slots so that they can be called at such times.
 These methods may also be called from threads other than the main thread.
 Qt runs the nested event loop in that thread, so the waiting thread does not need its own event loop.
 
-Scans (``ScanWidget``) run in the main thread: each point calls ``set(wait=True)`` of the motors and then ``startAcq()`` of the detector,
-and the next point starts when ``busyStateChanged(False)`` of the detector is delivered.
-The file name of each point is made from the target values set by the scan, without reading the devices.
+Scans (``MultiScan``, used by ``ScanWidget``) run in the scan thread.
+At each point, the scan thread calls ``set(wait=True)`` of the motors, sets the file name of ``DataStorage``, and calls ``startAcq(wait=True)`` of the detector.
+The file name is made from the target values set by the scan, without reading the devices.
+A stop request (``MultiScan.stop()``) is delivered to the scan thread while it is waiting, and stops the motors and the detector.
+If the detector rejects the acquisition (e.g., the file cannot be saved), the scan is stopped and ``acquisitionRejected`` is emitted.
 
 
 Closing and Quitting
 --------------------
 
-- **Closing a window**: ``ScanWidget`` stops the running scan when its sub window is closed, before the window is destroyed.
+- **Closing a window**: ``ScanWidget`` stops the running scan and waits for it when its sub window is closed, before the window is destroyed.
+  A running ``MultiScan`` keeps a reference to itself until its thread finishes.
   Windows created from the templates stop and ``kill()`` the devices they created (``releaseOnClose``), and wait for the monitoring threads to finish.
   If you create your own window, do the same for the devices it owns.
 - **Quitting the application**: on ``QCoreApplication.aboutToQuit``, running scans are stopped, every device kills its monitoring thread and waits for it,

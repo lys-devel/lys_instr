@@ -45,8 +45,9 @@
               <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../../install.html">Installation</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="../../tutorial.html">Tutorial</a><ul class="current">
-<li class="toctree-l2"><a class="reference internal" href="../../tutorial.html#essential">Essential</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../../tutorial.html">Getting Started</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../../tutorial.html#launch">Launch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../tutorial.html#basics">Basics</a></li>
 <li class="toctree-l2 current"><a class="reference internal" href="../../tutorial.html#advanced">Advanced</a><ul class="current">
 <li class="toctree-l3"><a class="reference internal" href="motorGUI.html">Motor GUI</a></li>
 <li class="toctree-l3"><a class="reference internal" href="switchGUI.html">Switch GUI</a></li>
@@ -85,7 +86,7 @@
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
       <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
-          <li class="breadcrumb-item"><a href="../../tutorial.html">Tutorial</a></li>
+          <li class="breadcrumb-item"><a href="../../tutorial.html">Getting Started</a></li>
       <li class="breadcrumb-item active">Lifecycle and Threads</li>
       <li class="wy-breadcrumbs-aside">
             <a href="../../_sources/lys_instr_/tutorial_/lifecycle.rst.txt" rel="nofollow"> View page source</a>
@@ -130,6 +131,10 @@ for the rules that device implementations must follow.</p>
 <tr class="row-even"><td><p><strong>Acquisition thread</strong></p></td>
 <td><p>Detectors only. Created and started by every <code class="docutils literal notranslate"><span class="pre">startAcq()</span></code>. Finished when <code class="docutils literal notranslate"><span class="pre">_run()</span></code> returns.</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">_run()</span></code>, and <code class="docutils literal notranslate"><span class="pre">_get()</span></code> every time <code class="docutils literal notranslate"><span class="pre">updated</span></code> is emitted.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Scan thread</strong></p></td>
+<td><p>Scans only. Created and started by every <code class="docutils literal notranslate"><span class="pre">MultiScan.start()</span></code>. Finished when the scan is completed or stopped.</p></td>
+<td><p>The whole scan: <code class="docutils literal notranslate"><span class="pre">set(wait=True)</span></code> of the motors and <code class="docutils literal notranslate"><span class="pre">startAcq(wait=True)</span></code> of the detector at each point.</p></td>
 </tr>
 </tbody>
 </table>
@@ -376,12 +381,12 @@ Use it only when the slot must finish before the emitter continues (e.g., <code 
 <td><p>Main thread (auto connection).</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">DataStorage</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">dataAcquired</span></code>, <code class="docutils literal notranslate"><span class="pre">busyStateChanged</span></code>, <code class="docutils literal notranslate"><span class="pre">stopped</span></code></p></td>
-<td><p>Main thread (lambdas connected in the main thread).</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">dataAcquired</span></code>, <code class="docutils literal notranslate"><span class="pre">busyStateChanged</span></code>, <code class="docutils literal notranslate"><span class="pre">startRequested</span></code></p></td>
+<td><p>Emitting thread (direct connection): the caller (or scan) thread reserves a file before the acquisition starts, and the acquisition thread stores the data.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">DataStorage</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">startRequested</span></code></p></td>
-<td><p>Caller thread of <code class="docutils literal notranslate"><span class="pre">startAcq()</span></code> (direct connection).</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">stopped</span></code></p></td>
+<td><p>Main thread (a lambda connected in the main thread).</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PreCorrector</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">busyStateChanged</span></code> of motors</p></td>
@@ -389,6 +394,8 @@ Use it only when the slot must finish before the emitter continues (e.g., <code 
 </tr>
 </tbody>
 </table>
+<p><code class="docutils literal notranslate"><span class="pre">DataStorage</span></code> is called from several threads in this way, so its methods are protected by a lock.
+Its own signals (e.g., <code class="docutils literal notranslate"><span class="pre">pathChanged</span></code>, <code class="docutils literal notranslate"><span class="pre">savingStateChanged</span></code>) may also be emitted from these threads; the GUI receives them in the main thread.</p>
 <p>Because the signals emitted by one thread are delivered to a receiver in another thread in the order of emission,
 a receiver in the main thread always receives all <code class="docutils literal notranslate"><span class="pre">dataAcquired</span></code> of an acquisition before its <code class="docutils literal notranslate"><span class="pre">busyStateChanged(False)</span></code>, and <code class="docutils literal notranslate"><span class="pre">stopped</span></code> after them.
 The data in <code class="docutils literal notranslate"><span class="pre">dataAcquired</span></code> is passed by reference. Do not modify the frames in a receiver, and do not reuse the arrays in your implementation after storing them.</p>
@@ -401,14 +408,17 @@ For example, a button may be clicked or a remote command may be executed in the 
 Write your slots so that they can be called at such times.</p>
 <p>These methods may also be called from threads other than the main thread.
 Qt runs the nested event loop in that thread, so the waiting thread does not need its own event loop.</p>
-<p>Scans (<code class="docutils literal notranslate"><span class="pre">ScanWidget</span></code>) run in the main thread: each point calls <code class="docutils literal notranslate"><span class="pre">set(wait=True)</span></code> of the motors and then <code class="docutils literal notranslate"><span class="pre">startAcq()</span></code> of the detector,
-and the next point starts when <code class="docutils literal notranslate"><span class="pre">busyStateChanged(False)</span></code> of the detector is delivered.
-The file name of each point is made from the target values set by the scan, without reading the devices.</p>
+<p>Scans (<code class="docutils literal notranslate"><span class="pre">MultiScan</span></code>, used by <code class="docutils literal notranslate"><span class="pre">ScanWidget</span></code>) run in the scan thread.
+At each point, the scan thread calls <code class="docutils literal notranslate"><span class="pre">set(wait=True)</span></code> of the motors, sets the file name of <code class="docutils literal notranslate"><span class="pre">DataStorage</span></code>, and calls <code class="docutils literal notranslate"><span class="pre">startAcq(wait=True)</span></code> of the detector.
+The file name is made from the target values set by the scan, without reading the devices.
+A stop request (<code class="docutils literal notranslate"><span class="pre">MultiScan.stop()</span></code>) is delivered to the scan thread while it is waiting, and stops the motors and the detector.
+If the detector rejects the acquisition (e.g., the file cannot be saved), the scan is stopped and <code class="docutils literal notranslate"><span class="pre">acquisitionRejected</span></code> is emitted.</p>
 </section>
 <section id="closing-and-quitting">
 <h2>Closing and Quitting<a class="headerlink" href="#closing-and-quitting" title="Link to this heading"></a></h2>
 <ul class="simple">
-<li><p><strong>Closing a window</strong>: <code class="docutils literal notranslate"><span class="pre">ScanWidget</span></code> stops the running scan when its sub window is closed, before the window is destroyed.
+<li><p><strong>Closing a window</strong>: <code class="docutils literal notranslate"><span class="pre">ScanWidget</span></code> stops the running scan and waits for it when its sub window is closed, before the window is destroyed.
+A running <code class="docutils literal notranslate"><span class="pre">MultiScan</span></code> keeps a reference to itself until its thread finishes.
 Windows created from the templates stop and <code class="docutils literal notranslate"><span class="pre">kill()</span></code> the devices they created (<code class="docutils literal notranslate"><span class="pre">releaseOnClose</span></code>), and wait for the monitoring threads to finish.
 If you create your own window, do the same for the devices it owns.</p></li>
 <li><p><strong>Quitting the application</strong>: on <code class="docutils literal notranslate"><span class="pre">QCoreApplication.aboutToQuit</span></code>, running scans are stopped, every device kills its monitoring thread and waits for it,

@@ -22,6 +22,9 @@ def waitUntil(cond, timeout=10):
 class TestDataStorage(unittest.TestCase):
 
     def test_init(self):
+        """
+        Test that the DataStorage object is initialized correctly.
+        """
         storage = DataStorage()
         self.assertEqual(storage.base, ".", "Default base directory should be '.'.")
         self.assertEqual(storage.folder, "folder", "Default folder should be 'folder'.")
@@ -30,6 +33,9 @@ class TestDataStorage(unittest.TestCase):
         self.assertTrue(storage.numbered, "Storage should use numbering by default.")
 
     def test_getNumber(self):
+        """
+        Test that getNumber increments after reserving a file.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             storage = DataStorage()
             storage.base = tmpdir
@@ -41,18 +47,34 @@ class TestDataStorage(unittest.TestCase):
             self.assertEqual(n2, n1 + 1, "getNumber should increment after reserving a file.")
 
     def test_enabled_false(self):
+        """
+        Test that no array is reserved when storage is disabled.
+        """
         storage = DataStorage()
         storage.enabled = False
         storage.reserve(shape=(2, 2, 2, 2))
         self.assertEqual(storage.reservedCount, 0, "No array should be reserved when storage is disabled.")
 
     def test_numbered_false(self):
+        """
+        Test that getNumber returns None when numbering is disabled.
+        """
         storage = DataStorage()
         storage.numbered = False
         n = storage.getNumber()
         self.assertIsNone(n, "getNumber should return None when numbering is disabled.")
 
     def test_reserve_update_save(self):
+        """
+        Test that reserve, update, and save work correctly.
+        
+        This test verifies:
+        - Checks if storage.saving is set to True immediately after save() is called.
+        - Checks if the save operation completes within the timeout and storage.saving becomes False.
+        - Verifies that the saved file actually exists.
+        - Verifies that the content of the saved file matches storage._arr.
+
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             storage = DataStorage()
             storage.base = tmpdir
@@ -66,8 +88,11 @@ class TestDataStorage(unittest.TestCase):
             axes = [np.arange(2), np.arange(2), np.arange(2), np.arange(2)]
             arrSaving = np.full((2, 2, 2, 2), 5.0)
             arrSaving[0, 0] = 1
+
+            current_thread = QtCore.QThread.currentThread()
             storage.save(axes)
             self.assertTrue(storage.saving, "Storage should be saving after save() is called.")
+            self.assertNotEqual(current_thread, storage._threads[0], "Save thread should be different from main thread.")
 
             timeout = 5  # seconds
             start = time.time()
@@ -205,7 +230,7 @@ class TestDataStorage(unittest.TestCase):
     def test_pathErrors(self):
         invalid = [
             {"base": ""}, {"base": "  "}, {"base": " a"},
-            {"name": ""}, {"name": "   "}, {"name": " a"}, {"name": "a "}, {"name": "a."}, {"name": "a/b"}, {"name": "a\\b"},
+            {"name": ""}, {"name": "   "}, {"name": " a"}, {"name": "a "}, {"name": "a."}, {"name": "a//b"}, {"name": "a/"}, {"name": "a /b"},
             {"name": "a:b"}, {"name": "a*"}, {"name": "a?"}, {"name": 'a"'}, {"name": "a<b>"}, {"name": "a|b"}, {"name": "a\tb"},
             {"name": "CON"}, {"name": "nul.txt"}, {"name": "COM1"},
             {"folder": " "}, {"folder": "a /b"}, {"folder": "a//b"}, {"folder": "a:b"}, {"folder": "AUX"},
@@ -225,7 +250,7 @@ class TestDataStorage(unittest.TestCase):
                 self.assertFalse(storage.saving)
                 self.assertEqual(os.listdir(tmpdir), [])
 
-        valid = [{}, {"folder": ""}, {"folder": "a/b"}, {"folder": "a\\b"}, {"name": "my data"}, {"name": "x=1.5_[1]"}, {"name": "CONFIG"}]
+        valid = [{}, {"folder": ""}, {"folder": "a/b"}, {"folder": "a\\b"}, {"name": "my data"}, {"name": "x=1.5_[1]"}, {"name": "CONFIG"}, {"name": "a/b"}, {"name": "a\\b"}]
         for props in valid:
             with self.subTest(props=props), tempfile.TemporaryDirectory() as tmpdir:
                 storage = DataStorage()
@@ -430,20 +455,18 @@ class TestAcquisitionRejection(unittest.TestCase):
         scan._nameBox._check.setChecked(False)
         scan._nameBox._name.setText("pt_[1]")
 
-        # Make the file name invalid after the first point is saved.
-        names = []
+        # The acquisition of the third point is rejected, because the file exists and overwrite is disabled.
+        os.makedirs(os.path.join(self._tmp.name, "folder"))
+        open(os.path.join(self._tmp.name, "folder", "pt_2.npz"), "w").close()
+        self.storage.overwrite = False
 
-        def onPath():
-            names.append(self.storage.name)
-            if self.storage.name == "pt_1":
-                scan._name = "bad:[1]"
-        self.storage.pathChanged.connect(onPath)
-
-        scan._start()
-        waitUntil(lambda: scan._startBtn.isEnabled() and not self.storage.saving)
-        self.assertTrue(scan._startBtn.isEnabled(), "Scan should finish after rejection.")
-        self.assertEqual(sorted(os.listdir(os.path.join(self._tmp.name, "folder"))), ["pt_0.npz", "pt_1.npz"])
-        self.assertTrue(any("'bad:2'" in e for e in self.errors), self.errors)
+        scan.start()
+        self.assertTrue(scan.waitForFinished(30), "Scan should finish after rejection.")
+        self.assertTrue(self.storage.waitForSaved(5))
+        QtTest.QTest.qWait(100)
+        self.assertTrue(scan._startBtn.isEnabled())
+        self.assertEqual(sorted(os.listdir(os.path.join(self._tmp.name, "folder"))), ["pt_0.npz", "pt_1.npz", "pt_2.npz"])
+        self.assertTrue(any("pt_2.npz" in e for e in self.errors), self.errors)
         boxes = [w for w in QtWidgets.QApplication.topLevelWidgets() if isinstance(w, QtWidgets.QMessageBox) and w.isVisible()]
         self.assertEqual(len(boxes), 1)
         boxes[0].close()

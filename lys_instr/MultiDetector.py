@@ -220,6 +220,9 @@ class DetectorInterface(HardwareInterface):
         This method waits for the acquisition worker thread to finish if it is running.
         Qt events are processed while waiting, so that the GUI is not frozen.
         """
+        if not self._busy:
+            return
+        
         self._stop()
 
         thread = self._thread

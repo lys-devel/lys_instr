@@ -1,5 +1,7 @@
 import os
 import datetime
+import functools
+import threading
 import numpy as np
 import logging
 from lys import Wave
@@ -26,6 +28,17 @@ def _checkComponent(text):
     if text.split(".")[0].upper() in _RESERVED_NAMES:
         return f"'{text}' is a reserved name"
     return None
+
+
+def _locked(func):
+    """
+    Run the method while holding the lock of the DataStorage instance.
+    """
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return func(self, *args, **kwargs)
+    return wrapper
 
 
 class DataStorage(QtCore.QObject):
@@ -75,6 +88,8 @@ class DataStorage(QtCore.QObject):
         self._overwrite = True
         self._threads = []
         self._reservations = {}   # key: connected detector, or None for reserve() called directly
+        # The methods may be called from the scan, acquisition and main threads (signals of detectors are connected directly).
+        self._lock = threading.RLock()
         self._notes = None
         self._saveError = None
 
@@ -206,7 +221,7 @@ class DataStorage(QtCore.QObject):
         Check whether the current save path can be used.
 
         ``base`` must not be empty. ``folder`` may be empty (files are saved directly under ``base``) and may contain sub folders separated by '/' or '\\'.
-        ``name`` must not be empty or contain path separators.
+        ``name`` must not be empty, and may contain sub folders separated by '/' or '\\'.
         Leading and trailing spaces, and characters or names that are invalid on Windows are not allowed.
 
         Returns:
@@ -225,17 +240,18 @@ class DataStorage(QtCore.QObject):
                     errors["folder"] = reason
                     break
 
-        if "/" in self.name or "\\" in self.name:
-            errors["name"] = "must not contain '/' or '\\'"
-        else:
-            reason = _checkComponent(self.name)
+        # The name may contain sub folders (e.g., "loop_[2]/x_[1]" in scans).
+        for part in self.name.replace("\\", "/").split("/"):
+            reason = _checkComponent(part)
             if reason is not None:
                 errors["name"] = reason
+                break
         return errors
 
     def _pathErrorMessage(self, errors):
         return "Invalid save path: " + ", ".join(f"{key} '{getattr(self, key)}' {reason}" for key, reason in errors.items())
 
+    @_locked
     def getNumber(self):
         """
         Return the next available file number for saving.
@@ -250,7 +266,8 @@ class DataStorage(QtCore.QObject):
             return None
 
         # List the folder once instead of checking each candidate, which is slow on network drives.
-        folder = os.path.join(self.base, self.folder)
+        # The name may contain sub folders, so the folder containing the files is listed.
+        folder, name = os.path.split(os.path.join(self.base, self.folder, self.name))
         try:
             existing = {os.path.normcase(f) for f in os.listdir(folder)}
         except OSError:
@@ -258,7 +275,7 @@ class DataStorage(QtCore.QObject):
         reserved = {os.path.normcase(p) for p in self._reservedPaths()}
         i = 0
         while True:
-            filename = f"{self.name}_{i}.npz"
+            filename = f"{name}_{i}.npz"
             if os.path.normcase(filename) not in existing and os.path.normcase(os.path.join(folder, filename)) not in reserved:
                 return i
             i += 1
@@ -289,11 +306,14 @@ class DataStorage(QtCore.QObject):
         Args:
             detector (``MultiDetectorInterface``): Detector that emits ``dataAcquired`` and ``busyStateChanged`` signals.
         """
-        detector.dataAcquired.connect(lambda data: self.update(data, detector=detector))
-        detector.busyStateChanged.connect(lambda b: self._busyStateChanged(detector, b))
+        # Direct connections, so that a file is reserved before the acquisition starts (e.g., before a scan changes the file name for the next point),
+        # and the data is stored in the thread emitting it. The methods are protected by the lock.
+        detector.dataAcquired.connect(lambda data: self.update(data, detector=detector), QtCore.Qt.DirectConnection)
+        detector.busyStateChanged.connect(lambda b: self._busyStateChanged(detector, b), QtCore.Qt.DirectConnection)
         detector.stopped.connect(lambda: self._stopped(detector))
         detector.startRequested.connect(self._checkStart, QtCore.Qt.DirectConnection)
 
+    @_locked
     def _checkStart(self, request):
         """
         Reject acquisition of the connected detector if the data cannot be saved.
@@ -328,6 +348,7 @@ class DataStorage(QtCore.QObject):
             request["errors"].append(msg)
             self.errorOccurred.emit(msg)
 
+    @_locked
     def _busyStateChanged(self, detector, busy):
         """
         Reserve storage when the detector becomes busy, except for continuous runs (streaming) that are not saved.
@@ -339,6 +360,7 @@ class DataStorage(QtCore.QObject):
         if busy and detector.iteration >= 0:
             self._reserve(detector, detector.dataShape, repeat=detector.iteration, axes=detector.axes, exposure=detector.exposure)
 
+    @_locked
     def _stopped(self, detector):
         """
         Save any remaining buffered data when the detector stops.
@@ -370,6 +392,7 @@ class DataStorage(QtCore.QObject):
         """
         self._reserve(None, shape, fillValue)
 
+    @_locked
     def _reserve(self, key, shape, fillValue=None, repeat=1, axes=None, exposure=None):
         """
         Reserve storage for ``key`` (a connected detector, or None for direct calls).
@@ -414,6 +437,7 @@ class DataStorage(QtCore.QObject):
         self.errorOccurred.emit(str(error))
         raise error
 
+    @_locked
     def update(self, data, detector=None):
         """
         Update the buffered data array with new values.
@@ -445,6 +469,7 @@ class DataStorage(QtCore.QObject):
         """
         self._save(None, axes)
 
+    @_locked
     def _save(self, key, axes):
         reservation = self._reservations.pop(key, None)
         if reservation is None:
@@ -462,6 +487,7 @@ class DataStorage(QtCore.QObject):
         thread.start()
         self.savingStateChanged.emit(self.saving)
 
+    @_locked
     def _savingFinished(self):
         """
         Handle completion of a save thread.
@@ -512,10 +538,13 @@ class DataStorage(QtCore.QObject):
         """
         Wait for the files being written. Called when the application quits.
         """
-        for thread in list(self._threads):
+        with self._lock:
+            threads = list(self._threads)
+        for thread in threads:
             thread.wait()
 
     @property
+    @_locked
     def saving(self):
         """
         Whether a save operation is in progress.
@@ -526,6 +555,7 @@ class DataStorage(QtCore.QObject):
         return bool(self._threads or self._reservations)
 
     @property
+    @_locked
     def reservedCount(self):
         """
         Number of files reserved but not yet passed to save threads.
@@ -536,6 +566,7 @@ class DataStorage(QtCore.QObject):
         return len(self._reservations)
 
     @property
+    @_locked
     def savingCount(self):
         """
         Number of files currently being written.

@@ -45,8 +45,9 @@
               <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../../install.html">Installation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../tutorial.html">Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../tutorial.html">Getting Started</a></li>
 <li class="toctree-l1 current"><a class="reference internal" href="../../api.html">Python API</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../../api.html#package-overview">Package Overview</a></li>
 <li class="toctree-l2 current"><a class="reference internal" href="../../api.html#core-elements">Core Elements</a><ul class="current">
 <li class="toctree-l3"><a class="reference internal" href="base.html">Base Classes</a></li>
 <li class="toctree-l3"><a class="reference internal" href="motor.html">Motor</a></li>
@@ -247,7 +248,7 @@ If numbering is disabled this method returns <code class="docutils literal notra
 <span class="sig-name descname"><span class="pre">pathErrors</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/DataStorage.html#DataStorage.pathErrors"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.DataStorage.DataStorage.pathErrors" title="Link to this definition"></a></dt>
 <dd><p>Check whether the current save path can be used.</p>
 <p><code class="docutils literal notranslate"><span class="pre">base</span></code> must not be empty. <code class="docutils literal notranslate"><span class="pre">folder</span></code> may be empty (files are saved directly under <code class="docutils literal notranslate"><span class="pre">base</span></code>) and may contain sub folders separated by ‘/’ or ‘'.
-<code class="docutils literal notranslate"><span class="pre">name</span></code> must not be empty or contain path separators.
+<code class="docutils literal notranslate"><span class="pre">name</span></code> must not be empty, and may contain sub folders separated by ‘/’ or ‘'.
 Leading and trailing spaces, and characters or names that are invalid on Windows are not allowed.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Returns<span class="colon">:</span></dt>

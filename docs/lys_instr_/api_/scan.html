@@ -45,8 +45,9 @@
               <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../../install.html">Installation</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../tutorial.html">Tutorial</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../tutorial.html">Getting Started</a></li>
 <li class="toctree-l1 current"><a class="reference internal" href="../../api.html">Python API</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../../api.html#package-overview">Package Overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../api.html#core-elements">Core Elements</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../api.html#utilities">Utilities</a></li>
 <li class="toctree-l2 current"><a class="reference internal" href="../../api.html#combinations">Combinations</a><ul class="current">
@@ -281,7 +282,6 @@ If omitted, a string <code class="docutils literal notranslate"><span class="pre
 <dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.stopAndWait">
 <span class="sig-name descname"><span class="pre">stopAndWait</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">30</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/gui/MultiScan.html#ScanWidget.stopAndWait"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.stopAndWait" title="Link to this definition"></a></dt>
 <dd><p>Stop the running scan and wait until it finishes, while processing Qt events.</p>
-<p>If the scan does not finish within <code class="docutils literal notranslate"><span class="pre">timeout</span></code> (e.g. the hardware does not respond), the worker thread is terminated forcibly.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>timeout</strong> (<em>float</em>) – Timeout in seconds.</p>

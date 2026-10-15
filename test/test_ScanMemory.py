@@ -149,7 +149,7 @@ class TestScanAPI(_TempDirTestCase):
         self.assertEqual(rows[1], {"type": "motorScan", "name": "x", "mode": "Free", "range": "0, 0.5, 2"})
         self.assertEqual(rows[2]["range"], "1, 2")
         self.assertEqual((rows[3]["type"], rows[3]["mode"]), ("switchScan", "Iteration"))
-        self.assertEqual(list(self.scan._list[1].scanRange), [0.0, 0.5, 2.0])
+        self.assertEqual(list(self.scan._list[1].get().range), [0.0, 0.5, 2.0])
         self.assertEqual(len(self.scan._list), 5, "GUI should follow the scan list.")
 
         # The scan list is restored by another widget (e.g. after restart).
@@ -241,7 +241,19 @@ class TestThreading(_TempDirTestCase):
         # stop() should process events while waiting for the acquisition thread.
         from PyQt5 import QtCore, QtTest
         import time
-        detector = dummy.MultiDetectorDummy(indexShape=(3,), frameShape=(2,), exposure=0.5)
+        class SlowStopDetector(dummy.MultiDetectorDummy):
+            # A detector that takes time to stop (e.g., finishing the current exposure).
+            def _stop(self):
+                super()._stop()
+                self._stopRequestedAt = time.perf_counter()
+
+            def _run(self, iter=1):
+                super()._run(iter)
+                remaining = getattr(self, "_stopRequestedAt", 0) + 0.5 - time.perf_counter()
+                if remaining > 0:
+                    time.sleep(remaining)
+
+        detector = SlowStopDetector(indexShape=(3,), frameShape=(2,), exposure=0.5)
         self.devices.append(detector)
         detector.startAcq()
         QtTest.QTest.qWait(100)
