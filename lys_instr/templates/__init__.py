@@ -23,5 +23,5 @@ def releaseOnClose(window, devices):
 
 
 def test():
-    from .template1 import Window
-    return Window()
+    from .template1 import TemplateWindow
+    return TemplateWindow()

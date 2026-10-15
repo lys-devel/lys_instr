@@ -46,6 +46,16 @@ class MultiMotorGUI(QtWidgets.QWidget):
             obj.aliveStateChanged.connect(self._aliveStateChanged)
 
     @property
+    def memory(self):
+        """
+        Memory widget for saving and loading positions.
+
+        Returns:
+            ControllerMemory | None: The memory widget, or None if the memory is not shown.
+        """
+        return self._memory
+
+    @property
     def controllers(self):
         """
         Mapping of axis names to respective controllers (motors).
@@ -89,6 +99,7 @@ class MultiMotorGUI(QtWidgets.QWidget):
         gl.addWidget(self._execute, 2 + len(self._items), 3)
         gl.addWidget(SettingsButton(clicked=self._showSettings), 2 + len(self._items), 0)
 
+        self._memory = None
         if memory is None:
             self.setLayout(gl)
         else:
@@ -97,7 +108,8 @@ class MultiMotorGUI(QtWidgets.QWidget):
             else:
                 box = QtWidgets.QHBoxLayout()
             box.addLayout(gl)
-            box.addWidget(ControllerMemory(self._objs, path))
+            self._memory = ControllerMemory(self._objs, path)
+            box.addWidget(self._memory)
             self.setLayout(box)
 
     def _setMoveToValue(self):

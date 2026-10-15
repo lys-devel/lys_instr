@@ -209,6 +209,8 @@ class _MotorScanRow(QtWidgets.QWidget):
             self._from.setValue(values[0])
             self._step.setValue(values[1])
             self._numSteps.setValue(values[2])
+        else:
+            self._freeExpr.setText(d["range"])
 
 
 class _SwitchScanRow(QtWidgets.QWidget):
@@ -634,7 +636,14 @@ class ScanWidget(QtWidgets.QWidget):
     Scan configuration and execution panel.
 
     Provides a list-based GUI for composing a sequence of motor and switch scans, configuring detector/process settings, and starting/stopping scan execution.
+    The scan can also be configured and executed programmatically (see ``setScanList()``, ``start()`` and ``waitForFinished()``), and the GUI follows the changes.
     """
+
+    #: Signal emitted when a scan starts.
+    scanStarted = QtCore.pyqtSignal()
+
+    #: Signal emitted when a scan finishes (completed or stopped).
+    scanFinished = QtCore.pyqtSignal()
 
     def __init__(self, storage, motors, switches, detectors):
         """
@@ -786,6 +795,7 @@ class ScanWidget(QtWidgets.QWidget):
         self._running = True
         self._watchWindowClose()
         self._thread.start()
+        self.scanStarted.emit()
 
     def _scanFinished(self):
         """
@@ -801,6 +811,7 @@ class ScanWidget(QtWidgets.QWidget):
 
         if hasattr(self, "_loopCounts"):
             del self._loopCounts
+        self.scanFinished.emit()
 
     def _updateName(self):
         """
@@ -849,6 +860,171 @@ class ScanWidget(QtWidgets.QWidget):
             scanNamesDict (dict): Mutable mapping that will be updated by this method. The key ``'scanNames'`` is set to a list[str] containing the current scan axis names in order.
         """
         scanNamesDict["scanNames"] = [s.scanName for s in self._list]
+
+    @property
+    def scanList(self):
+        """
+        Current scan list.
+
+        Returns:
+            list[dict]: Scan rows from the outermost (Scan1) to the innermost. Each row has keys ``"type"``, ``"name"``, ``"mode"`` and ``"range"`` (see ``setScanList()``).
+        """
+        return [scan.save() for scan in self._list]
+
+    def setScanList(self, rows):
+        """
+        Set the scan list.
+
+        Each row is a dict with the following keys:
+
+        - ``name`` (str): Axis name. ``"loop"`` simply repeats the acquisition.
+        - ``range``: For motor axes, ``(from, step, numberOfSteps)`` in Linear mode or a comma-separated string of values in Free mode.
+          For switch axes, omit it to iterate over all labels, or give a comma-separated string (or list) of labels.
+        - ``mode`` (str, optional): ``"Linear"`` or ``"Free"`` for motor axes, ``"Iteration"`` or ``"Free"`` for switch axes.
+          If omitted, a string ``range`` means Free mode and a sequence means Linear mode. Specify ``mode="Free"`` to give the values of a motor axis as a list.
+        - ``type`` (str, optional): Ignored. Inferred from the axis.
+
+        Example::
+
+            scan.setScanList([{"name": "y", "range": (0, 1, 3)}, {"name": "x", "range": (0, 0.5, 5)}])
+
+        Args:
+            rows (list[dict]): Scan rows from the outermost (Scan1) to the innermost.
+
+        Raises:
+            ValueError: If a row is invalid (e.g. unknown axis).
+            RuntimeError: If a scan is running.
+        """
+        if self._running:
+            raise RuntimeError("Cannot change the scan list while a scan is running.")
+        d = {f"Scan{i + 1}": self._normalizeRow(row) for i, row in enumerate(rows)}
+        self._list.load(d)
+
+    def _normalizeRow(self, row):
+        name = row.get("name")
+        r = row.get("range")
+        if name in self._motorScanners:
+            mode = row.get("mode", "Free" if isinstance(r, str) else "Linear")
+            if mode == "Linear":
+                if r is None or len(r) != 3:
+                    raise ValueError(f"Range of '{name}' in Linear mode should be (from, step, numberOfSteps).")
+                r = (float(r[0]), float(r[1]), int(r[2]))
+            elif mode == "Free":
+                r = ", ".join(str(v) for v in r) if isinstance(r, (list, tuple)) else str(r)
+            else:
+                raise ValueError(f"Mode of '{name}' should be 'Linear' or 'Free'.")
+            return {"type": "motorScan", "name": name, "mode": mode, "range": r}
+        if name in self._switchScanners:
+            mode = row.get("mode", "Iteration" if r is None else "Free")
+            if mode not in ("Iteration", "Free"):
+                raise ValueError(f"Mode of '{name}' should be 'Iteration' or 'Free'.")
+            if isinstance(r, (list, tuple)):
+                r = ", ".join(str(v) for v in r)
+            return {"type": "switchScan", "name": name, "mode": mode, "range": "" if r is None else str(r)}
+        raise ValueError(f"Axis '{name}' is not available. Available axes: {list(self._motorScanners) + list(self._switchScanners)}")
+
+    @property
+    def fileName(self):
+        """
+        Template of the file names for scans.
+
+        Returns:
+            str: The template. ``{1}``, ``{2}``, ... are replaced by the scan values and ``[1]``, ``[2]``, ... by the scan indices.
+        """
+        return self._nameBox.text
+
+    def setFileName(self, name):
+        """
+        Set the template of the file names for scans.
+
+        Args:
+            name (str | None): The template (see ``fileName``). If None, the default template is used.
+        """
+        if name is None:
+            self._nameBox._check.setChecked(True)
+        else:
+            self._nameBox._check.setChecked(False)
+            self._nameBox._name.setText(name)
+
+    @property
+    def detector(self):
+        """
+        Name of the detector used for scans.
+
+        Returns:
+            str: The detector name.
+        """
+        return self._detectorsBox.currentText()
+
+    def setDetector(self, name):
+        """
+        Set the detector used for scans.
+
+        Args:
+            name (str): The detector name.
+
+        Raises:
+            ValueError: If the detector is not found.
+        """
+        if self._detectorsBox.findText(name) == -1:
+            raise ValueError(f"Detector '{name}' is not found. Available detectors: {list(self._detectors)}")
+        self._detectorsBox.setCurrentText(name)
+
+    @property
+    def exposure(self):
+        """
+        Exposure time used for scans.
+
+        Returns:
+            float: The exposure time.
+        """
+        return self._exposure.value()
+
+    def setExposure(self, value):
+        """
+        Set the exposure time used for scans.
+
+        Args:
+            value (float): The exposure time.
+        """
+        self._exposure.setValue(value)
+
+    def start(self):
+        """
+        Start a scan with the current settings.
+
+        Raises:
+            RuntimeError: If a scan is already running.
+        """
+        if self._running:
+            raise RuntimeError("A scan is already running.")
+        self._start()
+
+    def stop(self):
+        """
+        Request the running scan to stop. Use ``waitForFinished()`` to wait until it stops.
+        """
+        self._stop()
+
+    def waitForFinished(self, timeout=None):
+        """
+        Block until the running scan finishes, while processing Qt events.
+
+        Args:
+            timeout (float | None): Timeout in seconds. If None, wait without timeout.
+
+        Returns:
+            bool: True if the scan is finished (or not running), False if timed out.
+        """
+        if not self._running:
+            return True
+        loop = QtCore.QEventLoop()
+        self.scanFinished.connect(loop.quit)
+        if timeout is not None:
+            QtCore.QTimer.singleShot(int(timeout * 1000), loop.quit)
+        loop.exec_()
+        self.scanFinished.disconnect(loop.quit)
+        return not self._running
 
     @property
     def isRunning(self):

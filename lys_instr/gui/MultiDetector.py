@@ -52,10 +52,12 @@ class MultiDetectorGUI(QtWidgets.QWidget):
         if self._obj.exposure is not None:
             def setExposure(value):
                 self._obj.exposure = value
+            # Set the range and decimals before the value, so that the exposure of the detector is not clamped or rounded.
             expTime = QtWidgets.QDoubleSpinBox()
-            expTime.setValue(self._obj.exposure)
             expTime.setRange(0, np.inf)
             expTime.setDecimals(5)
+            expTime.setValue(self._obj.exposure)
+            self._expTime = expTime
             expTime.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
             expTime.valueChanged.connect(setExposure)
 
@@ -139,6 +141,9 @@ class MultiDetectorGUI(QtWidgets.QWidget):
         Args:
             mode (str): "acquire" for a finite run or "stream" for continuous streaming (iter = -1).
         """
+        # Apply the exposure shown in the GUI, which may differ if the exposure was changed programmatically.
+        if self._obj.exposure is not None:
+            self._obj.exposure = self._expTime.value()
         try:
             if mode == "acquire":
                 self._obj.startAcq(wait=self._params["wait"], iter=self._params["iter"])

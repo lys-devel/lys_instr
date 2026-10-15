@@ -80,6 +80,13 @@ class HardwareInterface(QtCore.QThread):
         """
         with QtCore.QMutexLocker(self.__mutex):
             self.__stopped = True
+        # Keep the reference until the thread finishes, because destroying a running QThread aborts the application.
+        if self.isRunning():
+            self.finished.connect(self._unregister)
+        else:
+            self._unregister()
+
+    def _unregister(self):
         if self in HardwareInterface.__list:
             HardwareInterface.__list.remove(self)
 
@@ -96,8 +103,7 @@ class HardwareInterface(QtCore.QThread):
         """
         Stop all active monitoring threads for instances of this class.
 
-        This method calls ``kill()`` on each registered device instance and clears the internal instance list ``__list``.
+        This method calls ``kill()`` on each registered device instance. Each instance is removed from the internal instance list ``__list`` when its thread finishes.
         """
         for h in list(HardwareInterface.__list):
             h.kill()
-        HardwareInterface.__list = []

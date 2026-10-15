@@ -249,11 +249,17 @@ class DataStorage(QtCore.QObject):
         if not self.numbered:
             return None
 
-        reserved = self._reservedPaths()
+        # List the folder once instead of checking each candidate, which is slow on network drives.
+        folder = os.path.join(self.base, self.folder)
+        try:
+            existing = {os.path.normcase(f) for f in os.listdir(folder)}
+        except OSError:
+            existing = set()
+        reserved = {os.path.normcase(p) for p in self._reservedPaths()}
         i = 0
         while True:
-            candidate = os.path.join(self.base, self.folder, f"{self.name}_{i}.npz")
-            if not os.path.exists(candidate) and candidate not in reserved:
+            filename = f"{self.name}_{i}.npz"
+            if os.path.normcase(filename) not in existing and os.path.normcase(os.path.join(folder, filename)) not in reserved:
                 return i
             i += 1
 

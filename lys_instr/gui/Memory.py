@@ -73,6 +73,7 @@ class ControllerMemory(QtWidgets.QWidget):
         """
         if path is None:
             self._path = None
+            return
 
         # Load memory file
         dir = os.path.join(".lys", ".lys_instr")
@@ -92,9 +93,25 @@ class ControllerMemory(QtWidgets.QWidget):
         with open(self._path, "w") as f:
             json.dump(self._savedPositions, f)
 
-    def _save(self):
+    @property
+    def positions(self):
         """
-        Save the current axis positions to the memory file.
+        Saved positions.
+
+        Returns:
+            list[dict]: Copy of the saved positions. Each item has keys ``"label"``, ``"position"`` (dict of axis name to value) and ``"memo"``.
+        """
+        return [{"label": item["label"], "position": dict(item["position"]), "memo": item["memo"]} for item in self._savedPositions]
+
+    def savePosition(self, memo=""):
+        """
+        Save the current positions of all axes.
+
+        Args:
+            memo (str): Memo of the saved position.
+
+        Returns:
+            str: Label of the saved position.
         """
         labels = {item["label"] for item in self._savedPositions}
         i = 1
@@ -103,32 +120,93 @@ class ControllerMemory(QtWidgets.QWidget):
         position = {}
         for obj in self._objs:
             position.update(obj.get())
-        self._savedPositions.append({"label": f"{i}", "position": position, "memo": ""})
+        self._savedPositions.append({"label": f"{i}", "position": position, "memo": memo})
+        self._export()
+        self._updateMemory()
+        return f"{i}"
+
+    def loadPosition(self, label, wait=False):
+        """
+        Move the axes to a saved position.
+
+        Axes that are not included in the saved position are not moved.
+
+        Args:
+            label (str): Label of the saved position.
+            wait (bool): If True, block until all axes become idle.
+
+        Raises:
+            ValueError: If ``label`` is not found.
+        """
+        loadedValues = self._find(label)["position"]
+        moved = []
+        for obj in self._objs:
+            value = {name: loadedValues[name] for name in obj.nameList if name in loadedValues}
+            if len(value) > 0:
+                obj.set(**value)
+                moved.append(obj)
+        if wait:
+            for obj in moved:
+                obj.waitForReady()
+
+    def deletePosition(self, *labels):
+        """
+        Delete saved positions.
+
+        Args:
+            *labels (str): Labels of the saved positions to be deleted.
+
+        Raises:
+            ValueError: If any of ``labels`` is not found.
+        """
+        labels = [str(label) for label in labels]
+        for label in labels:
+            self._find(label)
+        self._savedPositions = [item for item in self._savedPositions if item["label"] not in labels]
         self._export()
         self._updateMemory()
 
+    def setMemo(self, label, memo):
+        """
+        Set the memo of a saved position.
+
+        Args:
+            label (str): Label of the saved position.
+            memo (str): The memo.
+
+        Raises:
+            ValueError: If ``label`` is not found.
+        """
+        self._find(label)["memo"] = memo
+        self._export()
+        self._updateMemory()
+
+    def _find(self, label):
+        for item in self._savedPositions:
+            if item["label"] == str(label):
+                return item
+        raise ValueError(f"Saved position '{label}' is not found. Available labels: {[item['label'] for item in self._savedPositions]}")
+
+    def _save(self):
+        """
+        Save the current axis positions (Save button).
+        """
+        self.savePosition()
+
     def _load(self):
         """
-        Load the selected saved axis position and apply it to the controllers.
+        Move the axes to the selected saved position (Load button).
         """
         selections = self._positionList.selectedItems()
         if not selections:
             return
-        selectedlabel = selections[0].text(0)
-        itemDict = next(item for item in self._savedPositions if item["label"] == selectedlabel)
-        loadedValues = itemDict["position"]
-        for obj in self._objs:
-            value = {name: loadedValues[name] for name in obj.nameList}
-            obj.set(**value)
+        self.loadPosition(selections[0].text(0))
 
     def _delete(self):
         """
-        Delete selected saved positions from the memory file.
+        Delete the selected saved positions (Delete button).
         """
-        selectedlabels = {i.text(0) for i in self._positionList.selectedItems()}
-        self._savedPositions = [item for item in self._savedPositions if item["label"] not in selectedlabels]
-        self._export()
-        self._updateMemory()
+        self.deletePosition(*{i.text(0) for i in self._positionList.selectedItems()})
 
     def _memoEdited(self, item, column):
         """
@@ -139,13 +217,8 @@ class ControllerMemory(QtWidgets.QWidget):
             column (int): The column index that was edited.
         """
         if column == 2:
-            label = item.text(0)
-            memo = item.text(2)
-            for idx, pos in enumerate(self._savedPositions):
-                if pos["label"] == label:
-                    self._savedPositions[idx]["memo"] = memo
-                    self._export()
-                    break
+            self._find(item.text(0))["memo"] = item.text(2)
+            self._export()
 
     def _updateMemory(self):
         """
