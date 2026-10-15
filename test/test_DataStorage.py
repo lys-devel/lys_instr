@@ -365,6 +365,8 @@ class TestAcquisitionRejection(unittest.TestCase):
         self.storage.errorOccurred.connect(self.errors.append)
 
     def tearDown(self):
+        # Wait for saving that may still be running, so that no file is written after leaving the directory.
+        self.storage.waitForSaved(10)
         self.detector.kill()
         os.chdir(self._cwd)
         self._tmp.cleanup()
@@ -647,8 +649,13 @@ class TestScanWidgetLifecycle(unittest.TestCase):
         self.detector = MultiDetectorDummy(indexShape=(1,), frameShape=(2,), exposure=0.05)
         self.motor = dummy.MultiMotorDummy("x")
         self.storage.connect(self.detector)
+        self._scans = []
 
     def tearDown(self):
+        # Wait for scans and saving that may still be running, so that no file is written after leaving the directory.
+        for scan in self._scans:
+            scan.stopAndWait()
+        self.storage.waitForSaved(10)
         self.detector.kill()
         self.motor.kill()
         os.chdir(self._cwd)
@@ -656,7 +663,9 @@ class TestScanWidgetLifecycle(unittest.TestCase):
 
     def scanWidget(self):
         from lys_instr.gui.MultiScan import ScanWidget
-        return ScanWidget(self.storage, [self.motor], [], {"det": self.detector})
+        scan = ScanWidget(self.storage, [self.motor], [], {"det": self.detector})
+        self._scans.append(scan)
+        return scan
 
     def test_scan_list_with_unavailable_axes(self):
         os.makedirs(".lys/instr")

@@ -23,6 +23,11 @@ class _TempDirTestCase(unittest.TestCase):
         self.devices = []
 
     def tearDown(self):
+        # Wait for scans and saving that may still be running, so that no file is written after leaving the directory.
+        for w in getattr(self, "_scans", []):
+            w.stopAndWait()
+        if getattr(self, "storage", None) is not None:
+            self.storage.waitForSaved(10)
         for d in self.devices:
             d.kill()
         os.chdir(self._cwd)
@@ -129,6 +134,7 @@ class TestScanAPI(_TempDirTestCase):
         self.switch = dummy.MultiSwitchDummy("sw")
         self.devices.append(self.switch)
         self.scan = ScanWidget(self.storage, [self.motor("x", "y")], [self.switch], {"det": self.detector, "det2": self.detector})
+        self._scans = [self.scan]
 
     def test_scan_list(self):
         self.scan.setScanList([
