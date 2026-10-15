@@ -44,7 +44,7 @@ class TestDataStorage(unittest.TestCase):
         storage = DataStorage()
         storage.enabled = False
         storage.reserve(shape=(2, 2, 2, 2))
-        self.assertIsNone(storage._arr, "No array should be reserved when storage is disabled.")
+        self.assertEqual(storage.reservedCount, 0, "No array should be reserved when storage is disabled.")
 
     def test_numbered_false(self):
         storage = DataStorage()
@@ -64,7 +64,8 @@ class TestDataStorage(unittest.TestCase):
             data = {(0, 0): np.ones((2, 2))}
             storage.update(data)
             axes = [np.arange(2), np.arange(2), np.arange(2), np.arange(2)]
-            arrSaving = storage._arr
+            arrSaving = np.full((2, 2, 2, 2), 5.0)
+            arrSaving[0, 0] = 1
             storage.save(axes)
             self.assertTrue(storage.saving, "Storage should be saving after save() is called.")
 
@@ -241,7 +242,7 @@ class TestDataStorage(unittest.TestCase):
 class TestDataStorageGUI(unittest.TestCase):
 
     def setUp(self):
-        # DataStorageGUI writes .lastPath.json in the current directory
+        # Run in a temporary directory so that tests do not leave files
         self._cwd = os.getcwd()
         self._tmp = tempfile.TemporaryDirectory()
         os.chdir(self._tmp.name)
@@ -294,7 +295,9 @@ class TestDataStorageGUI(unittest.TestCase):
         storage.name = "fromCode"
         storage.reserve(shape=(2,))
         self.assertEqual(storage.name, "fromCode")
-        self.assertEqual(os.path.basename(storage._paths[-1]), "fromCode_0.npz")
+        storage.update({(0,): 1.0, (1,): 1.0})
+        self.assertTrue(storage.waitForSaved(5))
+        self.assertEqual(os.listdir("folder"), ["fromCode_0.npz"])
 
     def test_error_display(self):
         storage = DataStorage()
@@ -429,3 +432,177 @@ class TestAcquisitionRejection(unittest.TestCase):
         self.assertEqual(len(boxes), 1)
         boxes[0].close()
         self.assertEqual(self.storage.name, "data", "File name should be restored after the scan.")
+
+
+class TestDataStorageFeatures(unittest.TestCase):
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.dir = self._tmp.name
+        self.storage = DataStorage()
+        self.storage.base = self.dir
+        self.detectors = []
+
+    def tearDown(self):
+        for d in self.detectors:
+            d.kill()
+        self._tmp.cleanup()
+
+    def detector(self, **kwargs):
+        d = MultiDetectorDummy(**kwargs)
+        self.storage.connect(d)
+        self.detectors.append(d)
+        return d
+
+    def files(self):
+        return sorted(os.listdir(os.path.join(self.dir, "folder")))
+
+    def load(self, name):
+        from lys import Wave
+        return Wave(os.path.join(self.dir, "folder", name))
+
+    def test_overwrite(self):
+        self.storage.numbered = False
+        for value in [1.0, 2.0]:
+            self.storage.reserve(shape=(1,))
+            self.storage.update({(0,): value})
+            self.assertTrue(self.storage.waitForSaved(5))
+        self.assertEqual(self.load("data.npz").data[0], 2.0, "File should be overwritten by default.")
+
+        self.storage.overwrite = False
+        errors = []
+        self.storage.errorOccurred.connect(errors.append)
+        with self.assertRaises(ValueError):
+            self.storage.reserve(shape=(1,))
+        self.assertFalse(self.storage.saving)
+        detector = self.detector(indexShape=(1,), frameShape=(2,), exposure=0.01)
+        with self.assertRaises(AcquisitionRejectedError):
+            detector.startAcq()
+        self.assertEqual(len(errors), 2)
+
+        # Overwrite option is not relevant when numbered.
+        self.storage.numbered = True
+        detector.startAcq(wait=True)
+        self.assertTrue(self.storage.waitForSaved(5))
+        self.assertEqual(self.files(), ["data.npz", "data_0.npz"])
+
+    def test_metadata(self):
+        detector = self.detector(indexShape=(2,), frameShape=(3,), exposure=0.01)
+        detector.startAcq(wait=True)
+        self.assertTrue(self.storage.waitForSaved(5))
+        note = self.load("data_0.npz").note
+        self.assertEqual(note["Exposure"], 0.01)
+        self.assertFalse(note["Stopped"])
+        self.assertIn("Time", note)
+        self.assertIn("Notes", note)
+
+        detector.startAcq(iter=100)
+        QtTest.QTest.qWait(100)
+        detector.stop()
+        self.assertTrue(self.storage.waitForSaved(5))
+        self.assertTrue(self.load("data_1.npz").note["Stopped"])
+
+    def test_repeat(self):
+        detector = self.detector(indexShape=(2,), frameShape=(3,), exposure=0.01)
+        received = []
+        detector.dataAcquired.connect(lambda d: received.append(d))
+        detector.startAcq(iter=3, wait=True)
+        self.assertTrue(self.storage.waitForSaved(5))
+        self.assertEqual(self.files(), ["data_0.npz"])
+        w = self.load("data_0.npz")
+        self.assertEqual(w.data.shape, (3, 2, 3))
+        self.assertEqual(len(w.axes), 3)
+        self.assertFalse(np.isnan(w.data).any())
+        self.assertFalse(w.note["Stopped"])
+
+        # A single iteration keeps the original shape.
+        detector.startAcq(iter=1, wait=True)
+        self.assertTrue(self.storage.waitForSaved(5))
+        self.assertEqual(self.load("data_1.npz").data.shape, (2, 3))
+
+    def test_duplicated_index(self):
+        self.storage.reserve(shape=(2, 3))
+        self.storage.update({(0,): np.zeros(3)})
+        self.storage.update({(0,): np.ones(3)})
+        self.assertTrue(self.storage.saving, "Duplicated frames should not complete the data.")
+        self.storage.update({(1,): np.ones(3)})
+        self.assertTrue(self.storage.waitForSaved(5))
+        self.assertTrue(np.all(self.load("data_0.npz").data == 1))
+
+    def test_multiple_detectors(self):
+        d1 = self.detector(indexShape=(2,), frameShape=(3,), exposure=0.02)
+        d2 = self.detector(indexShape=(4,), frameShape=(5,), exposure=0.01)
+        d1.startAcq()
+        d2.startAcq()
+        waitUntil(lambda: not d1.isBusy and not d2.isBusy)
+        self.assertTrue(self.storage.waitForSaved(5))
+        shapes = sorted(self.load(f).data.shape for f in self.files())
+        self.assertEqual(shapes, [(2, 3), (4, 5)])
+
+    def test_no_temporary_files(self):
+        self.storage.reserve(shape=(1,))
+        self.storage.update({(0,): 1.0})
+        self.assertTrue(self.storage.waitForSaved(5))
+        self.assertEqual(os.listdir(os.path.join(self.dir, "folder")), ["data_0.npz"])
+
+        # Failed save should not leave the destination or temporary files.
+        self.storage.reserve(shape=(1,))
+        os.chmod(os.path.join(self.dir, "folder"), 0o555)
+        try:
+            self.storage.update({(0,): 1.0})
+            self.assertTrue(self.storage.waitForSaved(5))
+        finally:
+            os.chmod(os.path.join(self.dir, "folder"), 0o755)
+        self.assertEqual(os.listdir(os.path.join(self.dir, "folder")), ["data_0.npz"])
+
+    def test_waitForSaved_timeout(self):
+        self.storage.reserve(shape=(2,))
+        self.assertFalse(self.storage.waitForSaved(0.1))
+        self.storage.update({(0,): 1.0, (1,): 1.0})
+        self.assertTrue(self.storage.waitForSaved())
+
+    def test_scan_restores_storage(self):
+        cwd = os.getcwd()
+        os.chdir(self.dir)
+        try:
+            from lys_instr import dummy
+            from lys_instr.gui.MultiScan import ScanWidget
+            detector = self.detector(indexShape=(1,), frameShape=(2,), exposure=0.01)
+            scan = ScanWidget(self.storage, [dummy.MultiMotorDummy("x")], [], {"det": detector})
+            if len(scan._list) == 0:
+                scan._list._add()
+            scan._list[0]._scanAxis.setCurrentText("x")
+            scan._list[0]._numSteps.setValue(2)
+            scan._nameBox._check.setChecked(False)
+            scan._nameBox._name.setText("pt_[1]")
+            self.storage.numbered = False
+            self.storage.enabled = False
+            scan._start()
+            waitUntil(lambda: scan._startBtn.isEnabled() and not self.storage.saving)
+            self.assertFalse(self.storage.numbered, "numbered should be restored after the scan.")
+            self.assertFalse(self.storage.enabled, "enabled should be restored after the scan.")
+            self.assertIn("scanNames", self.load("pt_0.npz").note)
+
+            # Scan names should not be added to data acquired after the scan.
+            self.storage.enabled = True
+            self.storage.numbered = True
+            detector.startAcq(wait=True)
+            self.assertTrue(self.storage.waitForSaved(5))
+            self.assertNotIn("scanNames", self.load("data_0.npz").note)
+        finally:
+            os.chdir(cwd)
+
+    def test_gui_overwrite(self):
+        cwd = os.getcwd()
+        os.chdir(self.dir)
+        try:
+            gui = DataStorageGUI(self.storage)
+            self.assertFalse(gui._overwriteCheck.isEnabled(), "Overwrite is not relevant when numbered.")
+            self.storage.numbered = False
+            self.assertTrue(gui._overwriteCheck.isEnabled())
+            self.storage.overwrite = False
+            self.assertFalse(gui._overwriteCheck.isChecked())
+            gui._overwriteCheck.setChecked(True)
+            self.assertTrue(self.storage.overwrite)
+        finally:
+            os.chdir(cwd)

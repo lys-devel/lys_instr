@@ -1,5 +1,4 @@
 import qtawesome as qta
-import json
 
 from lys.Qt import QtCore, QtWidgets
 from .widgets import FolderButton
@@ -29,6 +28,7 @@ class DataStorageGUI(QtWidgets.QWidget):
         self._syncFromObj()
         self._obj.pathChanged.connect(self._syncFromObj)
         self._obj.enabledChanged.connect(self._syncFromObj)
+        self._obj.overwriteChanged.connect(self._syncFromObj)
         self._obj.numberChanged.connect(self._updateNumber)
         self._obj.savingStateChanged.connect(self._savingStateChanged)
         self._obj.errorOccurred.connect(self._errorOccurred)
@@ -53,6 +53,8 @@ class DataStorageGUI(QtWidgets.QWidget):
 
         self._numberedCheck = QtWidgets.QCheckBox("Numbered", checked=True, objectName="DataStorage_numbered")
         self._enabledCheck = QtWidgets.QCheckBox("Enabled", checked=True, objectName="DataStorage_enabled")
+        self._overwriteCheck = QtWidgets.QCheckBox("Overwrite", checked=True, objectName="DataStorage_overwrite")
+        self._overwriteCheck.setToolTip("Allow overwriting an existing file when numbering is disabled")
 
         self._number = QtWidgets.QSpinBox()
         self._number.setRange(0, 2**31 - 1)
@@ -65,6 +67,7 @@ class DataStorageGUI(QtWidgets.QWidget):
         self._name.textChanged.connect(self._pathChanged)
         self._numberedCheck.toggled.connect(self._pathChanged)
         self._enabledCheck.toggled.connect(self._pathChanged)
+        self._overwriteCheck.toggled.connect(self._pathChanged)
 
         # Layout setup
         pathLayout = QtWidgets.QGridLayout()
@@ -73,7 +76,10 @@ class DataStorageGUI(QtWidgets.QWidget):
         pathLayout.addWidget(QtWidgets.QLabel("Base folder"), 0, 1)
         pathLayout.addWidget(QtWidgets.QLabel("Data folder"), 0, 2)
         pathLayout.addWidget(QtWidgets.QLabel("File name"), 0, 3)
-        pathLayout.addWidget(self._numberedCheck, 0, 4)
+        checks = QtWidgets.QHBoxLayout()
+        checks.addWidget(self._numberedCheck)
+        checks.addWidget(self._overwriteCheck)
+        pathLayout.addLayout(checks, 0, 4)
         pathLayout.addWidget(self._base, 1, 1)
         pathLayout.addWidget(self._folder, 1, 2)
         pathLayout.addWidget(self._name, 1, 3)
@@ -101,14 +107,10 @@ class DataStorageGUI(QtWidgets.QWidget):
         self._obj.name = self._name.text()
         self._obj.numbered = self._numberedCheck.isChecked()
         self._obj.enabled = self._enabledCheck.isChecked()
+        self._obj.overwrite = self._overwriteCheck.isChecked()
 
         self._updateNumber()
         self._updatePathState()
-
-        # Save last path info
-        lastPath = {"base": self._base.text(), "folder": self._folder.text(), "name": self._name.text()}
-        with open(".lastPath.json", "w") as f:
-            json.dump(lastPath, f)
 
         self._settingPath = False
 
@@ -125,6 +127,7 @@ class DataStorageGUI(QtWidgets.QWidget):
                 edit.setText(value)
         self._numberedCheck.setChecked(self._obj.numbered)
         self._enabledCheck.setChecked(self._obj.enabled)
+        self._overwriteCheck.setChecked(self._obj.overwrite)
         self._updateNumber()
         self._updatePathState()
         self._settingPath = False
@@ -133,6 +136,7 @@ class DataStorageGUI(QtWidgets.QWidget):
         """
         Show the next file number, or clear it if numbering is disabled.
         """
+        self._overwriteCheck.setEnabled(not self._obj.numbered)
         number = self._obj.getNumber()
         self._number.setValue(number) if number is not None else self._number.clear()
 
@@ -163,7 +167,7 @@ class DataStorageGUI(QtWidgets.QWidget):
             saving (bool): True when saving is in progress, False otherwise.
         """
         if saving:
-            text = f"[Status] {len(self._obj._paths)} files reserved, {len(self._obj._threads)} files being saved."
+            text = f"[Status] {self._obj.reservedCount} files reserved, {self._obj.savingCount} files being saved."
             self._savingState.setText(text)
         else:
             self._savingState.setText("[Status] Waiting")

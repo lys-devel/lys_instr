@@ -734,6 +734,8 @@ class ScanWidget(QtWidgets.QWidget):
         for s in self._list:
             process = _ScanProcess(s.scanName, s.scanObj, s.scanRange, process)
 
+        self._oldNumbered = self._storage.numbered
+        self._oldEnabled = self._storage.enabled
         self._storage.numbered = False
         self._storage.enabled = True
         self._storage.tagRequest.connect(self._setScanNames)
@@ -767,7 +769,9 @@ class ScanWidget(QtWidgets.QWidget):
         self._startBtn.setEnabled(True)
         self._stopBtn.setEnabled(False)
         self._storage.name = self._oldName
-        self._storage.numbered = True
+        self._storage.numbered = self._oldNumbered
+        self._storage.enabled = self._oldEnabled
+        self._storage.tagRequest.disconnect(self._setScanNames)
 
         if hasattr(self, "_loopCounts"):
             del self._loopCounts
