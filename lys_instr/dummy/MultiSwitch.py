@@ -1,4 +1,5 @@
 import time
+import threading
 
 from lys.Qt import QtCore
 from lys_instr import MultiSwitchInterface
@@ -22,6 +23,7 @@ class _LevelInfo(QtCore.QObject):
         self._target = None
         self._interval = interval
         self.error = False
+        self._lock = threading.RLock()   # set() and the getters may be called from different threads
 
     def set(self, state):
         """
@@ -33,8 +35,9 @@ class _LevelInfo(QtCore.QObject):
         Args:
             state (str): Target level to switch to.
         """
-        self._target = state
-        self._timing = time.perf_counter()
+        with self._lock:
+            self._target = state
+            self._timing = time.perf_counter()
 
     def _update(self):
         """
@@ -43,11 +46,12 @@ class _LevelInfo(QtCore.QObject):
         Determine the switch level based on elapsed time since ``set`` was called and the configured switch interval.
         Clear the target when it is reached.
         """
-        if self._target is None:
-            return
-        if time.perf_counter() - self._timing >= self._interval:
-            self._state = self._target
-            self._target = None
+        with self._lock:
+            if self._target is None:
+                return
+            if time.perf_counter() - self._timing >= self._interval:
+                self._state = self._target
+                self._target = None
 
     @property
     def state(self):
@@ -59,8 +63,9 @@ class _LevelInfo(QtCore.QObject):
         Returns:
             str: Current level of the switch axis.
         """
-        self._update()
-        return self._state
+        with self._lock:
+            self._update()
+            return self._state
 
     @property
     def busy(self):
@@ -72,8 +77,9 @@ class _LevelInfo(QtCore.QObject):
         Returns:
             bool: True if the switching is in progress, False otherwise.
         """
-        self._update()
-        return self._target is not None
+        with self._lock:
+            self._update()
+            return self._target is not None
 
 
 class MultiSwitchDummy(MultiSwitchInterface):

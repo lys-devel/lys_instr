@@ -75,6 +75,14 @@ In particular, reading and clearing the buffer of acquired frames in ``_get()`` 
 ``_run()`` must not return until the acquisition is completed (all frames are acquired and stored so that ``_get()`` returns them), or until ``_stop()`` is called.
 After ``_stop()`` is called, ``_run()`` must return promptly.
 
+**Checking your implementation**: ``test()`` checks these and other requirements with the real instrument.
+The detector acquires data several times. Do not connect it to a DataStorage while checking.
+
+.. code-block:: python
+
+    report = detector.test(exposure=0.1, iterations=2)
+    print(report)    # shows the result of each check
+
 
 
 Step-by-Step Demonstration

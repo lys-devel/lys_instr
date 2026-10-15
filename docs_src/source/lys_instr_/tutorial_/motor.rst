@@ -55,6 +55,17 @@ If the instrument reports the motion only after a delay, keep the busy state in 
 If the value is applied before ``_set()`` returns (for example, a parameter that is set instantly), ``_isBusy()`` may always return ``False``.
 ``set(wait=True)``, ``waitForReady()`` and scans rely on this to wait for the motion.
 
+**Checking your implementation**: ``test()`` checks these and other requirements with the real instrument.
+Give the device-specific parameters, such as the positions to move between and the tolerance, as arguments.
+The motor is moved, so run it only when it is safe.
+
+.. code-block:: python
+
+    report = motor.test("x", start=0, target=1, tolerance=1e-3, stopTarget=100)
+    print(report)    # shows the result of each check
+
+Switches can be checked in the same way, e.g., ``switch.test("shutter", start="OFF", target="ON")``.
+
 
 Step-by-Step Demonstration
 --------------------------

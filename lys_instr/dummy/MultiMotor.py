@@ -1,5 +1,6 @@
 import sys
 import time
+import threading
 
 from lys_instr import MultiMotorInterface
 from lys.Qt import QtWidgets, QtCore
@@ -22,6 +23,7 @@ class _ValueInfo(QtCore.QObject):
         self._speed = speed
         self._target = None
         self.error = False
+        self._lock = threading.RLock()   # set() and the getters may be called from different threads
 
     def set(self, target):
         """
@@ -32,9 +34,11 @@ class _ValueInfo(QtCore.QObject):
         Args:
             target (float): Target position to move toward.
         """
-        self._before = self._position
-        self._target = target
-        self._timing = time.perf_counter()
+        with self._lock:
+            self._update()
+            self._before = self._position
+            self._target = target
+            self._timing = time.perf_counter()
 
     def _update(self):
         """
@@ -43,15 +47,16 @@ class _ValueInfo(QtCore.QObject):
         Compute the interpolated position based on elapsed time since ``set`` was called and the configured speed.
         Clear the target when it is reached.
         """
-        if self._target is None:
-            return
-        d = self._target - self._before
-        t = (time.perf_counter() - self._timing)/abs(d/self._speed+sys.float_info.epsilon)
-        if t >= 1:
-            self._position = self._target
-            self._target = None
-        else:
-            self._position = self._before + d * t
+        with self._lock:
+            if self._target is None:
+                return
+            d = self._target - self._before
+            t = (time.perf_counter() - self._timing)/abs(d/self._speed+sys.float_info.epsilon)
+            if t >= 1:
+                self._position = self._target
+                self._target = None
+            else:
+                self._position = self._before + d * t
 
     def stop(self):
         """
@@ -59,8 +64,9 @@ class _ValueInfo(QtCore.QObject):
 
         Update the simulated position and clear any pending target.
         """
-        self._update()
-        self._target = None
+        with self._lock:
+            self._update()
+            self._target = None
 
     @property
     def busy(self):
@@ -72,8 +78,9 @@ class _ValueInfo(QtCore.QObject):
         Returns:
             bool: True if the motor axis motion is in progress, False otherwise.
         """
-        self._update()
-        return self._target is not None
+        with self._lock:
+            self._update()
+            return self._target is not None
     
     @property
     def position(self):
@@ -83,8 +90,9 @@ class _ValueInfo(QtCore.QObject):
         Returns:
             float: Current simulated position.
         """
-        self._update()
-        return self._position
+        with self._lock:
+            self._update()
+            return self._position
 
 
 class MultiMotorDummy(MultiMotorInterface):

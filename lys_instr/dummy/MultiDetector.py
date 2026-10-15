@@ -1,4 +1,5 @@
 import time
+import threading
 
 from lys_instr.MultiDetector import MultiDetectorInterface
 from lys.Qt import QtWidgets, QtCore
@@ -33,6 +34,7 @@ class MultiDetectorDummy(MultiDetectorInterface):
         self.exposure = exposure
         self.error = False
         self._shouldStop = False
+        self._lock = threading.Lock()
         self.start()
 
     def startAcq(self, *args, **kwargs):
@@ -59,7 +61,8 @@ class MultiDetectorDummy(MultiDetectorInterface):
                 if self._shouldStop:
                     return
                 time.sleep(self.exposure * self._obj.nframes)
-                self._data[idx] = data
+                with self._lock:
+                    self._data[idx] = data
                 self.updated.emit()
             i += 1
 
@@ -78,8 +81,10 @@ class MultiDetectorDummy(MultiDetectorInterface):
         Returns:
             dict: Shallow copy of acquired frames keyed by index tuples.
         """
-        data = self._data.copy()
-        self._data.clear()
+        # Read and clear the buffer atomically with respect to _run(), which may run in another thread.
+        with self._lock:
+            data = self._data.copy()
+            self._data.clear()
         return data
 
     def _isAlive(self):

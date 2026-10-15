@@ -357,6 +357,25 @@ class MultiSwitchInterface(MultiControllerInterface):
         super().__init__(*axisNamesAll, **kwargs)
         self._labels = labelNames
 
+    def test(self, axis, start, target, timeout=30, threads=4):
+        """
+        Check whether this switch implementation satisfies the requirements of lys_instr (e.g., thread safety and busy state).
+
+        The switch is changed between ``start`` and ``target``. See ``lys_instr.conformance.checkSwitch`` for details.
+
+        Args:
+            axis (str): Name of the axis to be changed.
+            start (str): Label where the checks start. The switch is left at this label.
+            target (str): Label to change to.
+            timeout (float): Timeout in seconds for each change.
+            threads (int): Number of threads used to check concurrent calls.
+
+        Returns:
+            ConformanceReport: The results of the checks. Print it to see the details.
+        """
+        from .conformance import checkSwitch
+        return checkSwitch(self, axis, start, target, timeout=timeout, threads=threads)
+
     @property
     def labelNames(self):
         """
@@ -527,4 +546,25 @@ class MultiMotorInterface(OffsettableMultiMotorInterface):
 
     Thin subclass of OffsettableMultiMotorInterface kept for semantic clarity and for future device-specific extensions.
     """
-    pass
+
+    def test(self, axis, start, target, tolerance, timeout=30, stopTarget=None, stopDelay=0.2, threads=4):
+        """
+        Check whether this motor implementation satisfies the requirements of lys_instr (e.g., thread safety and busy state).
+
+        The motor is moved between ``start`` and ``target``. See ``lys_instr.conformance.checkMotor`` for details.
+
+        Args:
+            axis (str): Name of the axis to be moved.
+            start (float): Position where the checks start. The motor is left at this position.
+            target (float): Position to move to.
+            tolerance (float): Allowed difference between the target and the position after the motion.
+            timeout (float): Timeout in seconds for each motion.
+            stopTarget (float | None): Position far from ``start`` used to check ``stop()``. If None, the stop check is skipped.
+            stopDelay (float): Time in seconds after which ``stop()`` is called during the motion to ``stopTarget``.
+            threads (int): Number of threads used to check concurrent calls.
+
+        Returns:
+            ConformanceReport: The results of the checks. Print it to see the details.
+        """
+        from .conformance import checkMotor
+        return checkMotor(self, axis, start, target, tolerance, timeout=timeout, stopTarget=stopTarget, stopDelay=stopDelay, threads=threads)

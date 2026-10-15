@@ -162,7 +162,7 @@ class DetectorInterface(HardwareInterface):
         self.busyStateChanged.emit(True)
 
         # The previous thread is kept until here so that it is not destroyed while finishing.
-        if self._thread is not None:
+        if self._thread is not None and self._thread.isRunning():
             self._thread.wait()
         self._thread = _AcqThread(self, iter=iter)
         self._thread.dataAcquired.connect(self.dataAcquired.emit, type=QtCore.Qt.DirectConnection)
@@ -357,6 +357,26 @@ class MultiDetectorInterface(DetectorInterface):
     This class extends ``DetectorInterface`` to support detectors that acquire data with multi-dimensional indices.
     Subclasses should implement device-specific acquisition and property reporting logic.
     """
+
+    def test(self, exposure=None, iterations=2, timeout=60, stopDelay=0.5, threads=4):
+        """
+        Check whether this detector implementation satisfies the requirements of lys_instr (e.g., thread safety and busy state).
+
+        The detector acquires data several times. Do not connect it to a DataStorage while checking.
+        See ``lys_instr.conformance.checkDetector`` for details.
+
+        Args:
+            exposure (float | None): Exposure time used for the checks. If None, the current exposure is used.
+            iterations (int): Number of iterations used to check repeated acquisition.
+            timeout (float): Timeout in seconds for each acquisition.
+            stopDelay (float): Time in seconds after which ``stop()`` is called during continuous acquisition.
+            threads (int): Number of threads used to check concurrent calls.
+
+        Returns:
+            ConformanceReport: The results of the checks. Print it to see the details.
+        """
+        from .conformance import checkDetector
+        return checkDetector(self, exposure=exposure, iterations=iterations, timeout=timeout, stopDelay=stopDelay, threads=threads)
 
     @property
     def axes(self):
