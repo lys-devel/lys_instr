@@ -1,7 +1,30 @@
 import os
 import numpy as np
+import logging
 from lys import Wave
 from lys.Qt import QtCore
+
+# Characters and names that cannot be used in file and folder names on Windows.
+_INVALID_CHARS = set('<>:"|?*') | {chr(i) for i in range(32)}
+_RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL"} | {f"COM{i}" for i in range(1, 10)} | {f"LPT{i}" for i in range(1, 10)}
+
+
+def _checkComponent(text):
+    """
+    Return the reason why ``text`` cannot be used as a file or folder name, or ``None`` if it is valid.
+    """
+    if text.strip() == "":
+        return "must not be empty"
+    if text != text.strip():
+        return "must not start or end with spaces"
+    if text.endswith("."):
+        return "must not end with '.'"
+    invalid = sorted(set(text) & _INVALID_CHARS)
+    if invalid:
+        return f"must not contain {' '.join(repr(c) for c in invalid)}"
+    if text.split(".")[0].upper() in _RESERVED_NAMES:
+        return f"'{text}' is a reserved name"
+    return None
 
 
 class DataStorage(QtCore.QObject):
@@ -21,6 +44,15 @@ class DataStorage(QtCore.QObject):
     #: Signal emitted when the next available file number changes.
     numberChanged = QtCore.pyqtSignal()
 
+    #: Signal emitted when the save path (base, folder, name, or numbered) changes.
+    pathChanged = QtCore.pyqtSignal()
+
+    #: Signal (bool) emitted when the enabled state changes.
+    enabledChanged = QtCore.pyqtSignal(bool)
+
+    #: Signal (str) emitted when reserving or saving a file fails.
+    errorOccurred = QtCore.pyqtSignal(str)
+
     def __init__(self, **kwargs):
         """
         Initialize the data storage instance.
@@ -30,7 +62,7 @@ class DataStorage(QtCore.QObject):
         Args:
             **kwargs: Additional keyword arguments passed to the base class.
         """
-        super().__init__()
+        super().__init__(**kwargs)
         self._base = "."
         self._folder = "folder"
         self._name = "data"
@@ -59,7 +91,10 @@ class DataStorage(QtCore.QObject):
         """
         Set the base directory for saving data files.
         """
-        self._base = value
+        if value != self._base:
+            self._base = value
+            self.pathChanged.emit()
+            self.numberChanged.emit()
 
     @property
     def folder(self):
@@ -76,7 +111,10 @@ class DataStorage(QtCore.QObject):
         """
         Set the data folder name under the base directory.
         """
-        self._folder = value
+        if value != self._folder:
+            self._folder = value
+            self.pathChanged.emit()
+            self.numberChanged.emit()
 
     @property
     def name(self):
@@ -93,7 +131,10 @@ class DataStorage(QtCore.QObject):
         """
         Set the base file name used for saved data files.
         """
-        self._name = value
+        if value != self._name:
+            self._name = value
+            self.pathChanged.emit()
+            self.numberChanged.emit()
 
     @property
     def numbered(self):
@@ -110,7 +151,10 @@ class DataStorage(QtCore.QObject):
         """
         Set whether automatic file numbering is enabled.
         """
-        self._numbered = value
+        if value != self._numbered:
+            self._numbered = value
+            self.pathChanged.emit()
+            self.numberChanged.emit()
 
     @property
     def enabled(self):
@@ -127,7 +171,41 @@ class DataStorage(QtCore.QObject):
         """
         Set whether the data storage instance is enabled.
         """
-        self._enabled = value
+        if value != self._enabled:
+            self._enabled = value
+            self.enabledChanged.emit(value)
+
+    def pathErrors(self):
+        """
+        Check whether the current save path can be used.
+
+        ``base`` must not be empty. ``folder`` may be empty (files are saved directly under ``base``) and may contain sub folders separated by '/' or '\\'.
+        ``name`` must not be empty or contain path separators.
+        Leading and trailing spaces, and characters or names that are invalid on Windows are not allowed.
+
+        Returns:
+            dict[str, str]: Mapping from invalid property names (``"base"``, ``"folder"``, ``"name"``) to the reasons. Empty if the path is valid.
+        """
+        errors = {}
+        if self.base.strip() == "":
+            errors["base"] = "must not be empty"
+        elif self.base != self.base.strip():
+            errors["base"] = "must not start or end with spaces"
+
+        if self.folder != "":
+            for part in self.folder.replace("\\", "/").split("/"):
+                reason = _checkComponent(part)
+                if reason is not None:
+                    errors["folder"] = reason
+                    break
+
+        if "/" in self.name or "\\" in self.name:
+            errors["name"] = "must not contain '/' or '\\'"
+        else:
+            reason = _checkComponent(self.name)
+            if reason is not None:
+                errors["name"] = reason
+        return errors
 
     def getNumber(self):
         """
@@ -147,7 +225,6 @@ class DataStorage(QtCore.QObject):
         while True:
             candidate = os.path.join(self.base, self.folder, f"{self.name}_{i}.npz")
             if not os.path.exists(candidate) and candidate not in reserved:
-                self.numberChanged.emit()
                 return i
             i += 1
 
@@ -164,13 +241,13 @@ class DataStorage(QtCore.QObject):
 
     def _busyStateChanged(self, detector, busy):
         """
-        Reserve storage if busy; otherwise save the buffered data.
+        Reserve storage when the detector becomes busy, except for continuous runs (streaming) that are not saved.
 
         Args:
             detector (``MultiDetectorInterface``): Detector that the data storage instance is connected to.
-            busy (bool): True to reserve storage, False to save buffered data.
+            busy (bool): True when acquisition starts.
         """
-        if busy:
+        if busy and detector.iteration >= 0:
             self.reserve(detector.dataShape)
 
         self._axes_cache = detector.axes
@@ -198,10 +275,28 @@ class DataStorage(QtCore.QObject):
 
         Returns:
             ``None``
+
+        Raises:
+            ValueError: If the save path is invalid (see ``pathErrors()``).
+            OSError: If the data folder cannot be created.
+            In both cases nothing is reserved and ``errorOccurred`` is emitted.
         """
+        # Save the previous reservation if it was not completed, so that its path is not used for the new data.
+        if self._arr is not None:
+            self.save(self._axes_cache)
+
+        self._counter = 0
         if not self.enabled:
             self.savingStateChanged.emit(self.saving)
             return
+
+        errors = self.pathErrors()
+        if errors:
+            msg = "Invalid save path: " + ", ".join(f"{key} {reason}" for key, reason in errors.items())
+            logging.error(msg)
+            self.savingStateChanged.emit(self.saving)
+            self.errorOccurred.emit(msg)
+            raise ValueError(msg)
 
         tag = {"Notes": self._notes}
         self.tagRequest.emit(tag)
@@ -211,32 +306,40 @@ class DataStorage(QtCore.QObject):
         folder = os.path.join(self.base, self.folder)
         path = os.path.join(folder, numberedName)
 
+        try:
+            os.makedirs(folder, exist_ok=True)
+        except OSError as e:
+            msg = f"Failed to create data folder '{folder}': {e}"
+            logging.error(msg)
+            self.savingStateChanged.emit(self.saving)
+            self.errorOccurred.emit(msg)
+            raise
+
         self._tags.append(tag)
         self._paths.append(path)
-        os.makedirs(folder, exist_ok=True)
 
         self._arr = np.full(shape, np.nan if fillValue is None else fillValue, dtype=float)
         self.savingStateChanged.emit(self.saving)
+        self.numberChanged.emit()
 
     def update(self, data, detector=None):
         """
         Update the buffered data array with new values.
 
         Each entry in ``data`` maps an index tuple to a frame array; the buffer is updated in-place at those indices.
+        Data is ignored if there is no reserved buffer, e.g. when storage was disabled at ``reserve()`` or the buffer has already been saved.
 
         Args:
             data (dict[tuple, np.ndarray]): Mapping from index tuples to frame arrays used to update the buffer.
             detector (``MultiDetectorInterface``): Detector instance to query for axes information.
         """
-        if not self.enabled:
-            return
         for idx, value in data.items():
-            if self._arr is not None:
-                self._arr[idx] = value
-                self._counter += 1
-                dim = len(idx)
+            if self._arr is None:
+                return
+            self._arr[idx] = value
+            self._counter += 1
 
-            if idx == () or self._counter >= np.prod(self._arr.shape[0:dim]):
+            if idx == () or self._counter >= np.prod(self._arr.shape[0:len(idx)]):
                 axes = detector.axes if detector is not None else self._axes_cache
                 self.save(axes)
 
@@ -251,7 +354,8 @@ class DataStorage(QtCore.QObject):
         Args:
             axes (Sequence[np.ndarray]): Coordinate arrays for each data axis used to construct the ``Wave``.
         """
-        if not self.enabled or self._arr is None:
+        # Whether to save is decided at reserve(), so the enabled state is not checked here.
+        if self._arr is None:
             return
 
         self._counter = 0
@@ -272,12 +376,18 @@ class DataStorage(QtCore.QObject):
         """
         Handle completion of a save thread.
 
-        Remove any non-running save threads from the internal thread list and emit ``savingStateChanged`` so listeners can update their state.
+        Remove the finished save thread from the internal thread list and emit ``savingStateChanged`` so listeners can update their state.
         """
-        for i in reversed(range(len(self._threads))):
-            if not self._threads[i].isRunning():
-                self._threads.remove(self._threads[i])
+        # finished is emitted just before the thread exits, so wait for it before releasing the reference.
+        thread = self.sender()
+        thread.wait()
+        self._threads.remove(thread)
         self.savingStateChanged.emit(self.saving)
+        self.numberChanged.emit()
+        if thread.error is not None:
+            msg = f"Failed to save '{thread.path}': {thread.error}"
+            logging.error(msg)
+            self.errorOccurred.emit(msg)
 
     @property
     def saving(self):
@@ -313,6 +423,27 @@ class _SaveThread(QtCore.QThread):
         self._axes = axes
         self._note = note
         self._path = path
+        self._error = None
+
+    @property
+    def error(self):
+        """
+        Exception raised while saving, or ``None`` if saving succeeded.
+
+        Returns:
+            Exception | None: The exception raised while saving.
+        """
+        return self._error
+
+    @property
+    def path(self):
+        """
+        Destination file path.
+
+        Returns:
+            str: Destination file path.
+        """
+        return self._path
 
     def run(self):
         """
@@ -321,6 +452,9 @@ class _SaveThread(QtCore.QThread):
         Calls ``lys.Wave.export`` on ``self.wave`` to write the Wave to ``self.path``.
         This runs in the worker thread so the main application thread is not blocked by file I/O.
         """
-        wave = Wave(self._data, *self._axes)
-        wave.note = self._note
-        wave.export(self._path)
+        try:
+            wave = Wave(self._data, *(self._axes or []))
+            wave.note = self._note
+            wave.export(self._path)
+        except Exception as e:
+            self._error = e

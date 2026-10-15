@@ -83,6 +83,7 @@ class DetectorInterface(HardwareInterface):
         self._exposure = exposure
         self._mutex = QtCore.QMutex()
         self._busy = False
+        self._iteration = 1
 
     def _loadState(self):
         """
@@ -117,6 +118,7 @@ class DetectorInterface(HardwareInterface):
             return
 
         self._busy = True
+        self._iteration = iter
         self.busyStateChanged.emit(True)
 
         self._thread = _AcqThread(self, iter=iter)
@@ -210,6 +212,16 @@ class DetectorInterface(HardwareInterface):
             bool: True if the detector is busy, False otherwise.
         """
         return self._busy
+
+    @property
+    def iteration(self):
+        """
+        Number of iterations of the current (or last) acquisition.
+
+        Returns:
+            int: Number of iterations. -1 means continuous run (streaming).
+        """
+        return self._iteration
 
     @property
     def isAlive(self):

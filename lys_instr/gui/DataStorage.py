@@ -11,6 +11,7 @@ class DataStorageGUI(QtWidgets.QWidget):
 
     Provide controls to select base folder, data folder, file name, numbering, and enable/disable saving.
     Update the storage backend and show a saving-status indicator.
+    Changes made to the storage object programmatically are reflected in the widgets.
     """
 
     def __init__(self, obj):
@@ -18,18 +19,19 @@ class DataStorageGUI(QtWidgets.QWidget):
         Create the storage GUI and bind it to the storage object.
 
         Args:
-            obj (DataStorage): The storage backend object (must provide ``base``, ``folder``, ``name``, ``getNumber()`` and the ``savingStateChanged`` signal).
+            obj (DataStorage): The storage backend object.
         """
         super().__init__()
         self._obj = obj
         self._settingPath = False
 
         self._initLayout()
-        self._obj.base = self._base.text()
-        self._obj.folder = self._folder.text()
-        self._obj.name = self._name.text()
+        self._syncFromObj()
+        self._obj.pathChanged.connect(self._syncFromObj)
+        self._obj.enabledChanged.connect(self._syncFromObj)
+        self._obj.numberChanged.connect(self._updateNumber)
         self._obj.savingStateChanged.connect(self._savingStateChanged)
-        self._obj.numberChanged.connect(self._pathChanged)
+        self._obj.errorOccurred.connect(self._errorOccurred)
 
     def _initLayout(self):
         """
@@ -40,7 +42,6 @@ class DataStorageGUI(QtWidgets.QWidget):
         browse.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
 
         self._base = QtWidgets.QLineEdit(objectName="DataStorage_base")
-        self._base.setText(".")
         self._folder = QtWidgets.QLineEdit(objectName="DataStorage_folder")
         self._name = QtWidgets.QLineEdit(objectName="DataStorage_name")
 
@@ -54,7 +55,9 @@ class DataStorageGUI(QtWidgets.QWidget):
         self._enabledCheck = QtWidgets.QCheckBox("Enabled", checked=True, objectName="DataStorage_enabled")
 
         self._number = QtWidgets.QSpinBox()
-        self._number.setEnabled(True)
+        self._number.setRange(0, 2**31 - 1)
+        self._number.setReadOnly(True)
+        self._number.setButtonSymbols(QtWidgets.QSpinBox.NoButtons)
 
         # Connect signals
         self._base.textChanged.connect(self._pathChanged)
@@ -99,9 +102,8 @@ class DataStorageGUI(QtWidgets.QWidget):
         self._obj.numbered = self._numberedCheck.isChecked()
         self._obj.enabled = self._enabledCheck.isChecked()
 
-        # Update number spinbox only if numbering is enabled
-        number = self._obj.getNumber()
-        self._number.setValue(number) if number is not None else self._number.clear()
+        self._updateNumber()
+        self._updatePathState()
 
         # Save last path info
         lastPath = {"base": self._base.text(), "folder": self._folder.text(), "name": self._name.text()}
@@ -109,6 +111,41 @@ class DataStorageGUI(QtWidgets.QWidget):
             json.dump(lastPath, f)
 
         self._settingPath = False
+
+    def _syncFromObj(self):
+        """
+        Update the widgets from the storage object when its properties are changed programmatically.
+        """
+        if self._settingPath:
+            return
+
+        self._settingPath = True
+        for edit, value in [(self._base, self._obj.base), (self._folder, self._obj.folder), (self._name, self._obj.name)]:
+            if edit.text() != value:
+                edit.setText(value)
+        self._numberedCheck.setChecked(self._obj.numbered)
+        self._enabledCheck.setChecked(self._obj.enabled)
+        self._updateNumber()
+        self._updatePathState()
+        self._settingPath = False
+
+    def _updateNumber(self):
+        """
+        Show the next file number, or clear it if numbering is disabled.
+        """
+        number = self._obj.getNumber()
+        self._number.setValue(number) if number is not None else self._number.clear()
+
+    def _updatePathState(self):
+        """
+        Highlight invalid path fields and show the reason while not saving.
+        """
+        errors = self._obj.pathErrors()
+        for key, edit in [("base", self._base), ("folder", self._folder), ("name", self._name)]:
+            edit.setStyleSheet("border: 1px solid red;" if key in errors else "")
+            edit.setToolTip(errors.get(key, ""))
+        if not self._obj.saving:
+            self._savingStateChanged(False)
 
     def _browse(self):
         """
@@ -130,6 +167,25 @@ class DataStorageGUI(QtWidgets.QWidget):
             self._savingState.setText(text)
         else:
             self._savingState.setText("[Status] Waiting")
+        self._savingState.setToolTip("")
 
         icon = qta.icon("ri.loader-2-line", color="orange") if saving else qta.icon("ri.check-line", color="green")
         self._savedIndicator.setPixmap(icon.pixmap(24, 24))
+
+        errors = self._obj.pathErrors()
+        if not saving and errors:
+            msg = ", ".join(f"{key} {reason}" for key, reason in errors.items())
+            self._savingState.setText(f"[Invalid path] {msg}")
+            self._savingState.setToolTip(msg)
+            self._savedIndicator.setPixmap(qta.icon("ri.error-warning-line", color="red").pixmap(24, 24))
+
+    def _errorOccurred(self, msg):
+        """
+        Show an error message in the status label until the saving state changes.
+
+        Args:
+            msg (str): The error message.
+        """
+        self._savingState.setText(f"[Error] {msg}")
+        self._savingState.setToolTip(msg)
+        self._savedIndicator.setPixmap(qta.icon("ri.error-warning-line", color="red").pixmap(24, 24))
