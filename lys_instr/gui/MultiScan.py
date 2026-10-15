@@ -1,6 +1,8 @@
 import os
 import numpy as np
 from lys.Qt import QtWidgets, QtCore, QtGui
+from lys_instr import ScanAxis, MultiScan
+from ..MultiScan import Loop
 
 
 class _MotorScanRow(QtWidgets.QWidget):
@@ -47,6 +49,7 @@ class _MotorScanRow(QtWidgets.QWidget):
         self._from.setDecimals(4)
         self._from.setEnabled(False)
         self._step = QtWidgets.QDoubleSpinBox(objectName="ScanRange_step_" + title)
+        self._step.setValue(1)
         self._step.setRange(-np.inf, np.inf)
         self._step.setDecimals(4)
         self._step.setEnabled(False)
@@ -123,50 +126,19 @@ class _MotorScanRow(QtWidgets.QWidget):
             self._numSteps.hide()
             self._numStepsLabel.hide()
 
-    @property
-    def scanObj(self):
-        """
-        Scanner corresponding to the currently selected axis.
+    def get(self):
+        name = self.scanName
 
-        Returns:
-            object: Scanner object for the selected axis.
-        """
-        return self._motorScanners[self.scanName]
-
-    @property
-    def scanName(self):
-        """
-        Currently selected scan axis name.
-
-        Returns:
-            str: Name of the currently selected scan axis.
-        """
-        return self._scanAxis.currentText()
-
-    @property
-    def scanRange(self):
-        """
-        List of values that this row will iterate over when executed.
-
-        Returns:
-            list[float | str]: Sequence of numeric values (Linear mode) or expression strings (Free mode).
-        """
         if self._scanMode.currentText() == "Linear":
             values = [self._from.value() + i * self._step.value() for i in range(self._numSteps.value())]
         elif self._scanMode.currentText() == "Free":
             values = eval(self._freeExpr.text())
-        return values
+
+        return ScanAxis(name, self._motorScanners[name], values)
 
     @property
-    def scanIndex(self):
-        """
-        Index of the nearest value in the scan range.
-
-        Returns:
-            int: Index of the value in ``scanRange`` closest to the current scanner reading (motor-axis value).
-        """
-        value = self.scanObj.get()[self.scanName]
-        return np.argmin(abs(np.array(self.scanRange) - value))
+    def scanName(self):
+        return self._scanAxis.currentText()
 
     def setIndex(self, index):
         """
@@ -271,51 +243,20 @@ class _SwitchScanRow(QtWidgets.QWidget):
             sw = self._switchScanners[self._scanAxis.currentText()]
             self._freeExpr.setText(", ".join(sw.labelNames))
 
-    @property
-    def scanName(self):
-        """
-        Currently selected scan axis name.
+    def get(self):
+        name = self.scanName
 
-        Returns:
-            str: Name of the currently selected scan axis.
-        """
-        return self._scanAxis.currentText()
-
-    @property
-    def scanObj(self):
-        """
-        Scanner corresponding to the currently selected axis.
-
-        Returns:
-            object: Scanner object for the selected axis.
-        """
-        return self._switchScanners[self.scanName]
-
-    @property
-    def scanRange(self):
-        """
-        List of labels that this row will iterate over when executed.
-
-        Returns:
-            list[str]: Sequence of label strings (Iteration mode) or expression strings (Free mode).
-        """
         if self._scanMode.currentText() == "Iteration":
-            sw = self._switchScanners[self._scanAxis.currentText()]
+            sw = self._switchScanners[name]
             values = sw.labelNames
         elif self._scanMode.currentText() == "Free":
             values = self._freeExpr.text().replace(" ", "").split(",")
-        return values
+
+        return ScanAxis(name, self._switchScanners[name], values)
 
     @property
-    def scanIndex(self):
-        """
-        Index of the current switch state within the scan range.
-
-        Returns:
-            int: Index of the value in ``scanRange`` equal to the current scanner reading (switch-axis label).
-        """
-        value = self.scanObj.get()[self.scanName]
-        return self.scanRange.index(value)
+    def scanName(self):
+        return self._scanAxis.currentText()
 
     def setIndex(self, index):
         """
@@ -514,6 +455,9 @@ class _ScanList(QtWidgets.QListWidget):
 
     def __getitem__(self, index):
         return self._scans[index]
+    
+    def get(self):
+        return [scan.get() for scan in self._scans]
 
     def save(self):
         """
@@ -643,7 +587,7 @@ class ScanWidget(QtWidgets.QWidget):
         Returns:
             dict[str, object]: Mapping of axis name to scanner object (includes a "loop" dummy).
         """
-        scanners = {"loop": _Loop()}
+        scanners = {"loop": Loop()}
         for motor in motors:
             scanners.update({axis: motor for axis in motor.nameList})
         return scanners
@@ -669,6 +613,8 @@ class ScanWidget(QtWidgets.QWidget):
             switchScanners (dict[str, object]): Mapping of switch-axis name to switch objects.
             process (dict): Detector/process mapping passed to the detector configuration box.
         """
+        self._status = QtWidgets.QLabel("[Status] Waiting")
+
         label = QtWidgets.QLabel("List of parameters (right click to edit)")
 
         self._list = _ScanList(motorScanners, switchScanners)
@@ -685,12 +631,12 @@ class ScanWidget(QtWidgets.QWidget):
         btnsLayout.addWidget(self._stopBtn)
 
         layout = QtWidgets.QVBoxLayout()
+        layout.addWidget(self._status)
         layout.addWidget(label)
         layout.addWidget(self._list)
         layout.addWidget(processBox)
         layout.addWidget(self._nameBox)
         layout.addLayout(btnsLayout)
-        layout.addStretch()
 
         self.setLayout(layout)
 
@@ -727,35 +673,24 @@ class ScanWidget(QtWidgets.QWidget):
 
         Builds the nested process chain from the configured scan list and starts the worker thread.
         """
-        process = _DetectorProcess(self._detectors[self._detectorsBox.currentText()], self._exposure.value())
-        for s in self._list:
-            process = _ScanProcess(s.scanName, s.scanObj, s.scanRange, process)
-
-        self._storage.numbered = False
-        self._storage.enabled = True
-        self._storage.tagRequest.connect(self._setScanNames)
-        self._name = self._nameBox.text
-
-        self._loopCounts = {i: [0, 0] for i, _ in enumerate(self._list) if self._list[i].scanName == "loop"}
-
-        self._worker = _ScanWorker(process)
-        self._thread = QtCore.QThread(self)
-
-        self._worker.moveToThread(self._thread)
-
-        self._thread.started.connect(self._worker.run)
-        self._worker.startRequested.connect(process.start, QtCore.Qt.QueuedConnection)
-        self._worker.finished.connect(self._thread.quit)
-        self._worker.finished.connect(self._worker.deleteLater)
-        self._thread.finished.connect(self._thread.deleteLater)
-        self._thread.finished.connect(self._scanFinished)
-
-        self._worker.beforeAcquisition.connect(self._updateName)
 
         self._startBtn.setEnabled(False)
         self._stopBtn.setEnabled(True)
-        self._oldName = self._storage.name
-        self._thread.start()
+
+        self._scanner = MultiScan(self._storage, self._list.get(), self._detectors[self._detectorsBox.currentText()], self._exposure.value(), self._nameBox.text)
+        self._scanner.statusChanged.connect(self._statusChanged)
+        self._scanner.finished.connect(self._scanFinished)
+        self._scanner.stopped.connect(self._scanFinished)
+        self._scanner.start()
+
+    def _statusChanged(self, status):
+        """
+        Update the GUI to reflect the current scan status.
+        
+        Args:
+            status (str): Current scan status.
+        """
+        self._status.setText(f"[Status] {status}")
 
     def _scanFinished(self):
         """
@@ -763,306 +698,9 @@ class ScanWidget(QtWidgets.QWidget):
         """
         self._startBtn.setEnabled(True)
         self._stopBtn.setEnabled(False)
-        self._storage.name = self._oldName
-        self._storage.numbered = True
-
-        if hasattr(self, "_loopCounts"):
-            del self._loopCounts
-
-    def _updateName(self):
-        """
-        Update the storage file name using current scan parameter values.
-        """
-        name = str(self._name)
-        for i, scan in enumerate(self._list):
-            if scan.scanName == "loop":
-                num = int(self._loopCounts[i][0])
-                value = num
-                index = num
-                n = np.prod([len(self._list[j].scanRange) for j in range(i)])
-                self._loopCounts[i][1] += 1
-                self._loopCounts[i][0] += self._loopCounts[i][1] // n
-                self._loopCounts[i][0] %= len(scan.scanRange)
-                self._loopCounts[i][1] %= n
-            else:
-                value = scan.scanObj.get()[scan.scanName]
-                index = scan.scanIndex
-            name = name.replace("{" + str(i + 1) + "}", value) if type(value) == str else name.replace("{" + str(i + 1) + "}", f"{value:.5g}")
-            name = name.replace("[" + str(i + 1) + "]", str(index))
-        self._storage.name = name
 
     def _stop(self):
         """
         Request the running scan to stop.
         """
-        if hasattr(self, "_worker"):
-            QtCore.QMetaObject.invokeMethod(self._worker, "stop", QtCore.Qt.QueuedConnection)
-
-    def _setScanNames(self, scanNamesDict):
-        """
-        Populate the provided mapping with the current scan axis names.
-
-        Args:
-            scanNamesDict (dict): Mutable mapping that will be updated by this method. The key ``'scanNames'`` is set to a list[str] containing the current scan axis names in order.
-        """
-        scanNamesDict["scanNames"] = [s.scanName for s in self._list]
-
-    def closeEvent(self, event):
-        """
-        Event handler for window close event.
-
-        If the scan is running when the window is closed, 
-        this method will force the scan to stop and wait for the thread to finish before accepting the close event.
-        """
-        if hasattr(self, "_thread") and self._thread.isRunning():
-            QtCore.QMetaObject.invokeMethod(self._worker, "forceStop", QtCore.Qt.BlockingQueuedConnection)
-            self._thread.quit()
-            self._thread.wait()
-        event.accept()
-
-
-class _ScanWorker(QtCore.QObject):
-    """
-    Worker class to manage a scan process within a separate thread.
-
-    Acts as a bridge between the GUI thread and the scan execution logic. 
-    Handles signal forwarding and provides thread-safe methods to control the lifecycle of a scan process.
-    """
-    # signal emitted to request scan start
-    startRequested = QtCore.pyqtSignal()
-
-    # signal emitted when the current process has finished (either after all work is done or after a stop request, once the innermost operation completes)
-    finished = QtCore.pyqtSignal()
-
-    # signal emitted before each acquisition
-    beforeAcquisition = QtCore.pyqtSignal()
-
-    def __init__(self, process):
-        """
-        Initialize a scan worker with a given process.
-
-        Args:
-            process (object): Process exposing ``start()``, ``stop()``, and ``beforeAcquisition`` and ``finished`` signals.
-
-        """
-        super().__init__()
-        self._process = process
-        self._process.beforeAcquisition.connect(self.beforeAcquisition.emit)
-        self._process.finished.connect(self.finished.emit)
-
-    @QtCore.pyqtSlot()
-    def run(self):
-        """
-        Start the scan process by emitting the startRequested signal.
-        """
-        self.startRequested.emit()
-
-    @QtCore.pyqtSlot()
-    def stop(self):
-        """
-        Request the scan to stop by emitting the stop signal and invoking the `stop()` method of the process with a queued connection.
-        """
-        QtCore.QMetaObject.invokeMethod(self._process, "stop", QtCore.Qt.QueuedConnection)
-
-    @QtCore.pyqtSlot()
-    def forceStop(self):
-        """
-        Force the scan to stop by invoking the `stop()` method of the process with a blocking connection.
-        """
-        QtCore.QMetaObject.invokeMethod(self._process, "stop", QtCore.Qt.BlockingQueuedConnection)
-
-
-class _Loop(QtCore.QObject):
-    """
-    Dummy loop scanner.
-    """
-
-    def __init__(self, name="loop"):
-        """
-        Create the loop object.
-
-        Args:
-            name (str, optional): Key used in mappings for the loop value. Defaults to "loop".
-        """
-        super().__init__()
-        self._name = name
-        self._value = None
-
-    def set(self, *args, **kwargs):
-        """
-        Set the loop value.
-
-        Args:
-            *args: If provided, the first positional argument is used as the loop value.
-            **kwargs: If no positional args are provided, the first keyword value is used.
-
-        Raises:
-            ValueError: If neither positional nor keyword arguments are provided.
-        """
-        if args:
-            self._value = args[0]
-        elif kwargs:
-            self._value = next(iter(kwargs.values()))
-        else:
-            raise ValueError("No value provided to _Loop.set()")
-
-    def get(self):
-        """
-        Return the current loop value as a mapping.
-
-        Returns:
-            dict[str, object]: Mapping of the loop names to respective current values.
-        """
-        return {self._name: self._value}
-
-
-class _DetectorProcess(QtCore.QObject):
-    """
-    Detector process wrapper.
-
-    Wraps a detector and exposure value and exposes ``start()`` and ``stop()`` used by the scan executor.
-    Emits ``beforeAcquisition`` before starting acquisition.
-    """
-
-    # signal emitted before starting acquisition
-    beforeAcquisition = QtCore.pyqtSignal()
-
-    # signal emitted after acquisition is finished
-    finished = QtCore.pyqtSignal()
-
-    def __init__(self, detector, exposure):
-        """
-        Create a detector process wrapper.
-
-        Args:
-            detector (object): Detector object to control.
-            exposure (float): Exposure time to apply before acquisition.
-        """
-        super().__init__()
-        self._detector = detector
-        self._exposure = exposure
-
-        detector.busyStateChanged.connect(self._busyChanged)
-
-    def start(self):
-        """
-        Start the detector process.
-
-        Configures exposure if provided, emits ``beforeAcquisition`` and starts the detector.
-        """
-        if self._detector.exposure is not None:
-            self._detector.exposure = self._exposure
-        self.beforeAcquisition.emit()
-        self._detector.startAcq()
-
-    def _busyChanged(self, busy):
-        """
-        Handle detector busy-state updates.
-
-        Emits ``finished`` when the detector is not busy anymore.
-        """
-        if not busy:
-            self.finished.emit()
-
-    def stop(self):
-        """
-        Stop the wrapped detector acquisition.
-        """
-        self._detector.stop()
-
-
-class _ScanProcess(QtCore.QObject):
-    """
-    Scan process wrapper.
-
-    Iterates a sequence of values for a single scan axis and delegates to the nested process for acquisition at each value.
-    Exposes ``start()`` and ``stop()``.
-    """
-
-    #: Signal emitted before each acquisition.
-    beforeAcquisition = QtCore.pyqtSignal()
-
-    #: Signal emitted when current scan has finished (either after all work is done or after a stop request).
-    finished = QtCore.pyqtSignal()
-
-    def __init__(self, name, obj, values, process):
-        """
-        Create a scan process for a single axis.
-
-        Args:
-            name (str): Axis name used in ``set()`` calls.
-            obj (object): Controller exposing ``set(..., wait=True)`` and ``get()``.
-            values (Iterable[float | str]): Sequence of values to iterate over (elements are numeric or label strings).
-            process (object): Nested process exposing ``start()`` and ``stop()``.
-        """
-        super().__init__()
-        self._name = name
-        self._obj = obj
-        self._values = list(values)
-        self._process = process
-        self._index = 0
-        self._shouldStop = False
-        self._finished = False
-        self._stopPending = False
-        self._process.beforeAcquisition.connect(self.beforeAcquisition.emit)
-        self._process.finished.connect(self._next)
-
-    @QtCore.pyqtSlot()
-    def start(self):
-        """
-        Start the scan process by iterating over the sequence of values, delegating acquisition to the nested process at each step.
-
-        This method emits ``beforeAcquisition`` before each acquisition and ``finished`` after all acquisitions complete or a stop is requested.
-        Call ``stop()`` to interrupt the scan.
-        """
-        self._index = 0
-        self._shouldStop = False
-        self._finished = False
-        self._next()
-
-    def _next(self):
-        """
-        Advance the scan process by one step.
-
-        If a stop has been requested or all values have been processed, emit ``finished`` and return.
-        Otherwise, set the axis to the next value and start the nested process for acquisition at that value.
-        Waits for the nested process to finish before proceeding.
-        """
-        if self._shouldStop or self._index >= len(self._values):
-            if self._stopPending:
-                self._emitFinished()
-            elif self._shouldStop:
-                self._stopPending = True
-                self._process.finished.connect(self._emitFinished)
-                self._process.stop()
-            else:
-                self._emitFinished()
-            return
-
-        value = self._values[self._index]
-        self._index += 1
-        self._obj.set(**{self._name: value}, wait=True)
-        self._process.start()
-
-    @QtCore.pyqtSlot()
-    def stop(self):
-        """
-        Request a stop and forward the stop request to the nested process.
-
-        The ``finished`` signal is emitted only after each level of the nested process has completed its stop procedure in response to a stop request.
-        """
-        self._shouldStop = True
-        self._stopPending = True
-        self._process.finished.connect(self._emitFinished)
-        self._process.stop()
-
-    def _emitFinished(self):
-        """
-        Emit the ``finished`` signal if the scan has not already been marked as finished.
-
-        This method is idempotent and does not emit the ``finished`` signal if the scan has already been marked as finished.
-        """
-        if self._finished:
-            return
-        self._finished = True
-        self.finished.emit()
+        self._scanner.stop()

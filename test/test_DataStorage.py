@@ -5,12 +5,16 @@ import tempfile
 import numpy as np
 
 from PyQt5 import QtTest
+from lys.Qt import QtCore
 from lys_instr.DataStorage import DataStorage
 
 
 class TestDataStorage(unittest.TestCase):
 
     def test_init(self):
+        """
+        Test that the DataStorage object is initialized correctly.
+        """
         storage = DataStorage()
         self.assertEqual(storage.base, ".", "Default base directory should be '.'.")
         self.assertEqual(storage.folder, "folder", "Default folder should be 'folder'.")
@@ -19,6 +23,9 @@ class TestDataStorage(unittest.TestCase):
         self.assertTrue(storage.numbered, "Storage should use numbering by default.")
 
     def test_getNumber(self):
+        """
+        Test that getNumber increments after reserving a file.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             storage = DataStorage()
             storage.base = tmpdir
@@ -30,18 +37,34 @@ class TestDataStorage(unittest.TestCase):
             self.assertEqual(n2, n1 + 1, "getNumber should increment after reserving a file.")
 
     def test_enabled_false(self):
+        """
+        Test that no array is reserved when storage is disabled.
+        """
         storage = DataStorage()
         storage.enabled = False
         storage.reserve(shape=(2, 2, 2, 2))
         self.assertIsNone(storage._arr, "No array should be reserved when storage is disabled.")
 
     def test_numbered_false(self):
+        """
+        Test that getNumber returns None when numbering is disabled.
+        """
         storage = DataStorage()
         storage.numbered = False
         n = storage.getNumber()
         self.assertIsNone(n, "getNumber should return None when numbering is disabled.")
 
     def test_reserve_update_save(self):
+        """
+        Test that reserve, update, and save work correctly.
+        
+        This test verifies:
+        - Checks if storage.saving is set to True immediately after save() is called.
+        - Checks if the save operation completes within the timeout and storage.saving becomes False.
+        - Verifies that the saved file actually exists.
+        - Verifies that the content of the saved file matches storage._arr.
+
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             storage = DataStorage()
             storage.base = tmpdir
@@ -54,8 +77,11 @@ class TestDataStorage(unittest.TestCase):
             storage.update(data)
             axes = [np.arange(2), np.arange(2), np.arange(2), np.arange(2)]
             arrSaving = storage._arr
+
+            current_thread = QtCore.QThread.currentThread()
             storage.save(axes)
             self.assertTrue(storage.saving, "Storage should be saving after save() is called.")
+            self.assertNotEqual(current_thread, storage._threads[0], "Save thread should be different from main thread.")
 
             timeout = 5  # seconds
             start = time.time()
