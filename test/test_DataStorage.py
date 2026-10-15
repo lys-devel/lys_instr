@@ -4,7 +4,7 @@ import os
 import tempfile
 import numpy as np
 
-from PyQt5 import QtTest, QtWidgets
+from PyQt5 import QtTest, QtWidgets, QtCore
 from lys_instr.DataStorage import DataStorage
 from lys_instr.gui import DataStorageGUI
 from lys_instr.dummy import MultiDetectorDummy
@@ -319,6 +319,20 @@ class TestDataStorageGUI(unittest.TestCase):
         self.assertEqual(gui._name.styleSheet(), "")
         self.assertEqual(gui._savingState.text(), "[Status] Waiting")
 
+    def test_layout_stable(self):
+        # Changing the status text should not move the other widgets.
+        storage = DataStorage()
+        gui = DataStorageGUI(storage)
+        gui.show()
+        QtTest.QTest.qWait(50)
+        geometry = [w.geometry() for w in (gui._base, gui._folder, gui._name, gui._number, gui._enabledCheck)]
+        gui._savingState.setText("[Status] 1 files reserved, 0 files being saved. " * 3)
+        QtTest.QTest.qWait(50)
+        self.assertEqual([w.geometry() for w in (gui._base, gui._folder, gui._name, gui._number, gui._enabledCheck)], geometry)
+        self.assertTrue(gui._savingState.text().startswith("[Status] 1 files reserved"))
+        self.assertEqual(gui._savingState.toolTip(), gui._savingState.text())
+        gui.close()
+
     def test_number(self):
         os.makedirs("folder")
         for i in range(150):
@@ -606,3 +620,87 @@ class TestDataStorageFeatures(unittest.TestCase):
             self.assertTrue(self.storage.overwrite)
         finally:
             os.chdir(cwd)
+
+
+class TestScanWidgetLifecycle(unittest.TestCase):
+
+    def setUp(self):
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.TemporaryDirectory()
+        os.chdir(self._tmp.name)
+        from lys_instr import dummy
+        self.storage = DataStorage()
+        self.detector = MultiDetectorDummy(indexShape=(1,), frameShape=(2,), exposure=0.05)
+        self.motor = dummy.MultiMotorDummy("x")
+        self.storage.connect(self.detector)
+
+    def tearDown(self):
+        self.detector.kill()
+        self.motor.kill()
+        os.chdir(self._cwd)
+        self._tmp.cleanup()
+
+    def scanWidget(self):
+        from lys_instr.gui.MultiScan import ScanWidget
+        return ScanWidget(self.storage, [self.motor], [], {"det": self.detector})
+
+    def test_scan_list_with_unavailable_axes(self):
+        os.makedirs(".lys/instr")
+        path = ".lys/instr/scanSaveList.dic"
+        text = str({"Scan1": {"type": "switchScan", "name": "swt1", "mode": "Free", "range": "A, B"},
+                    "Scan2": {"type": "motorScan", "name": "x", "mode": "Linear", "range": (0.0, 1.0, 3)},
+                    "Scan3": {"type": "motorScan", "name": "theta", "mode": "Linear", "range": (0.0, 1.0, 3)}})
+        with open(path, "w") as f:
+            f.write(text)
+        scan = self.scanWidget()
+        self.assertEqual([s.scanName for s in scan._list], ["x"])
+        with open(path) as f:
+            self.assertEqual(f.read(), text, "Loading should not rewrite the shared scan list.")
+
+        # The list is saved when the user edits it.
+        scan._list._add()
+        with open(path) as f:
+            self.assertEqual(len(eval(f.read())), 2)
+
+    def test_broken_scan_list(self):
+        os.makedirs(".lys/instr")
+        with open(".lys/instr/scanSaveList.dic", "w") as f:
+            f.write("{broken")
+        scan = self.scanWidget()
+        self.assertEqual(len(scan._list), 0)
+
+    def startScan(self, scan, n=50):
+        if len(scan._list) == 0:
+            scan._list._add()
+        scan._list[0]._scanAxis.setCurrentText("x")
+        scan._list[0]._step.setValue(1)
+        scan._list[0]._numSteps.setValue(n)
+        scan._nameBox._check.setChecked(False)
+        scan._nameBox._name.setText("pt_[1]")
+        scan._start()
+        QtTest.QTest.qWait(300)
+        self.assertTrue(scan.isRunning)
+
+    def test_stopAndWait(self):
+        scan = self.scanWidget()
+        self.startScan(scan)
+        self.assertTrue(scan.stopAndWait())
+        self.assertFalse(scan.isRunning)
+        self.assertTrue(scan._startBtn.isEnabled())
+        self.assertTrue(self.storage.waitForSaved(5))
+        # A new scan can be started after stopping.
+        self.startScan(scan, n=2)
+        waitUntil(lambda: not scan.isRunning)
+        self.assertFalse(scan.isRunning)
+
+    def test_close_sub_window(self):
+        area = QtWidgets.QMdiArea()
+        scan = self.scanWidget()
+        sub = area.addSubWindow(scan)
+        sub.setAttribute(QtCore.Qt.WA_DeleteOnClose)
+        area.show()
+        self.startScan(scan)
+        sub.close()
+        QtTest.QTest.qWait(100)
+        self.assertFalse(scan.isRunning, "Scan should be stopped when the sub window is closed.")
+        area.close()

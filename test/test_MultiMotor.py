@@ -80,6 +80,27 @@ class TestMultiMotorDummy(unittest.TestCase):
         motor.stop()
         self.assertTrue(all(v == t for v, t in zip(val.values(), [1, 2])), "Axis values should match targets after waitForReady and stop.")
 
+    def test_waitForReady_killed(self):
+        # waitForReady should not block forever when the monitoring thread is killed.
+        motor = MultiMotorDummy("x")
+        motor.set(x=1000)
+        QtCore.QTimer.singleShot(300, motor.kill)
+        start = time.time()
+        motor.set(x=2000, wait=True)
+        self.assertLess(time.time() - start, 5)
+        motor.wait(1000)
+        # Also return immediately if the thread is already stopped.
+        motor.set(x=3000, wait=True)
+
+    def test_waitForReady_disconnect(self):
+        # Signal connections made by waitForReady should be removed after waiting.
+        motor = MultiMotorDummy("x")
+        before = motor.receivers(motor.busyStateChanged)
+        for i in range(5):
+            motor.set(x=i * 0.01, wait=True)
+        self.assertEqual(motor.receivers(motor.busyStateChanged), before)
+        motor.kill()
+
     def test_isAlive_errorRecovery(self):
         motor = MultiMotorDummy('x', 'y')
         motor.set(x=1, y=2)

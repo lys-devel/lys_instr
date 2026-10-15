@@ -2,6 +2,7 @@ from lys.widgets import LysSubWindow
 from lys.Qt import QtWidgets
 from lys_instr import DataStorage, gui, dummy
 from lys_instr.dummy.detectorData import RamanData
+from . import releaseOnClose
 
 
 class TemplateWindow(LysSubWindow):
@@ -12,6 +13,7 @@ class TemplateWindow(LysSubWindow):
         self._detector = detector if detector else dummy.MultiDetectorDummy(data=RamanData(scanLevel=0), exposure=0.1)
         self._motor = motor if motor else dummy.MultiMotorDummy("x", "y", "phi")
         self._storage.connect(self._detector)
+        releaseOnClose(self, [d for d, given in ((self._detector, detector), (self._motor, motor)) if not given])
         self._detectorName = detectorName
         self._initLayout()
         self.setSettingFile("template1.dic")

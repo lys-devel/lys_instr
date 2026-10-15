@@ -1,7 +1,7 @@
 import qtawesome as qta
 
 from lys.Qt import QtCore, QtWidgets
-from .widgets import FolderButton
+from .widgets import FolderButton, ElidedLabel
 
 
 class DataStorageGUI(QtWidgets.QWidget):
@@ -49,7 +49,7 @@ class DataStorageGUI(QtWidgets.QWidget):
         self._savedIndicator.setPixmap(qta.icon("ri.check-line", color="green").pixmap(24, 24))
         self._savedIndicator.setAlignment(QtCore.Qt.AlignCenter)
 
-        self._savingState = QtWidgets.QLabel("[Status] Waiting")
+        self._savingState = ElidedLabel("[Status] Waiting")
 
         self._numberedCheck = QtWidgets.QCheckBox("Numbered", checked=True, objectName="DataStorage_numbered")
         self._enabledCheck = QtWidgets.QCheckBox("Enabled", checked=True, objectName="DataStorage_enabled")
@@ -171,7 +171,6 @@ class DataStorageGUI(QtWidgets.QWidget):
             self._savingState.setText(text)
         else:
             self._savingState.setText("[Status] Waiting")
-        self._savingState.setToolTip("")
 
         icon = qta.icon("ri.loader-2-line", color="orange") if saving else qta.icon("ri.check-line", color="green")
         self._savedIndicator.setPixmap(icon.pixmap(24, 24))
@@ -180,7 +179,6 @@ class DataStorageGUI(QtWidgets.QWidget):
         if not saving and errors:
             msg = ", ".join(f"{key} {reason}" for key, reason in errors.items())
             self._savingState.setText(f"[Invalid path] {msg}")
-            self._savingState.setToolTip(msg)
             self._savedIndicator.setPixmap(qta.icon("ri.error-warning-line", color="red").pixmap(24, 24))
 
     def _errorOccurred(self, msg):
@@ -191,5 +189,4 @@ class DataStorageGUI(QtWidgets.QWidget):
             msg (str): The error message.
         """
         self._savingState.setText(f"[Error] {msg}")
-        self._savingState.setToolTip(msg)
         self._savedIndicator.setPixmap(qta.icon("ri.error-warning-line", color="red").pixmap(24, 24))

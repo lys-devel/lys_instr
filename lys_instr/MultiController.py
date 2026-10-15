@@ -195,8 +195,17 @@ class MultiControllerInterface(HardwareInterface):
         with QtCore.QMutexLocker(self._mutex):
             if any(self._isBusy().values()) is False:
                 return
+            # The busy state is updated by the monitoring thread, so do not wait if it is not running (e.g. killed).
+            if not self.isRunning():
+                logging.warning("The monitoring thread is not running. Cannot wait for the device to be ready.")
+                return
             self.busyStateChanged.connect(on_busy_changed, QtCore.Qt.QueuedConnection)
-        loop.exec_()
+            self.finished.connect(loop.quit, QtCore.Qt.QueuedConnection)
+        try:
+            loop.exec_()
+        finally:
+            self.busyStateChanged.disconnect(on_busy_changed)
+            self.finished.disconnect(loop.quit)
         
     @property
     def isBusy(self):

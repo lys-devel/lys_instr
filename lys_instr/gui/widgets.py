@@ -65,6 +65,36 @@ class AliveIndicator(QtWidgets.QLabel):
         self.setPixmap(self._ok if alive else self._ng)
 
 
+class ElidedLabel(QtWidgets.QLabel):
+    """
+    Label whose text does not change the layout.
+
+    Text longer than the label is elided, and the full text is shown in the tooltip.
+    This prevents the surrounding widgets from moving when the text changes frequently (e.g. status messages).
+    """
+
+    def __init__(self, text=""):
+        super().__init__()
+        self.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
+        self._fullText = ""
+        self.setText(text)
+
+    def setText(self, text):
+        self._fullText = text
+        self.setToolTip(text)
+        self._elide()
+
+    def text(self):
+        return self._fullText
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self):
+        super().setText(self.fontMetrics().elidedText(self._fullText, QtCore.Qt.ElideRight, self.width()))
+
+
 class SettingsButton(QtWidgets.QPushButton):
     """
     Icon-only settings button.

@@ -50,6 +50,15 @@ class HardwareInterface(QtCore.QThread):
         self.__mutex = QtCore.QMutex()
         HardwareInterface.__list.append(self)
 
+        # Stop the monitoring thread when the application quits, so that no running thread is destroyed.
+        app = QtCore.QCoreApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self._quit)
+
+    def _quit(self):
+        self.kill()
+        self.wait(5000)
+
     def run(self):
         """
         Override ``QtCore.QThread.run()`` to define the background execution loop for a device instance.
@@ -71,6 +80,8 @@ class HardwareInterface(QtCore.QThread):
         """
         with QtCore.QMutexLocker(self.__mutex):
             self.__stopped = True
+        if self in HardwareInterface.__list:
+            HardwareInterface.__list.remove(self)
 
     def _loadState(self):
         """
@@ -87,6 +98,6 @@ class HardwareInterface(QtCore.QThread):
 
         This method calls ``kill()`` on each registered device instance and clears the internal instance list ``__list``.
         """
-        for h in cls.__list:
+        for h in list(HardwareInterface.__list):
             h.kill()
-        cls.__list = []
+        HardwareInterface.__list = []

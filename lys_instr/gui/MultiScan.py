@@ -1,4 +1,5 @@
 import os
+import logging
 import numpy as np
 from lys.Qt import QtWidgets, QtCore, QtGui
 from lys_instr import AcquisitionRejectedError
@@ -270,8 +271,9 @@ class _SwitchScanRow(QtWidgets.QWidget):
         """
         self._freeExpr.setEnabled(text != "Iteration")
         if text == "Iteration" and len(self._freeExpr.text()) == 0:
-            sw = self._switchScanners[self._scanAxis.currentText()]
-            self._freeExpr.setText(", ".join(sw.labelNames))
+            sw = self._switchScanners.get(self._scanAxis.currentText())
+            if sw is not None:
+                self._freeExpr.setText(", ".join(sw.labelNames))
 
     @property
     def scanName(self):
@@ -374,12 +376,18 @@ class _ScanList(QtWidgets.QListWidget):
         self._motorScanners = motorScanners
         self._switchScanners = switchScanners
         self._scans = []
+        self._saveEnabled = False
         self.customContextMenuRequested.connect(self._buildMenu)
         self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        # The saved file is shared by all scan widgets, so it is not rewritten until the user edits the list.
         if os.path.exists(self._savePath):
-            with open(self._savePath, "r") as f:
-                d = eval(f.read())
-            self.load(d)
+            try:
+                with open(self._savePath, "r") as f:
+                    d = eval(f.read())
+                self.load(d)
+            except Exception as e:
+                logging.warning(f"Failed to load the scan list from {self._savePath}: {e}")
+        self._saveEnabled = True
 
     def _buildMenu(self):
         """
@@ -502,9 +510,10 @@ class _ScanList(QtWidgets.QListWidget):
         """
         for i, scan in enumerate(self._scans):
             scan.setIndex(i + 1)
-        os.makedirs(os.path.dirname(self._savePath), exist_ok=True)
-        with open(self._savePath, "w") as f:
-            f.write(str(self.save()))
+        if self._saveEnabled:
+            os.makedirs(os.path.dirname(self._savePath), exist_ok=True)
+            with open(self._savePath, "w") as f:
+                f.write(str(self.save()))
 
         self.changed.emit()
 
@@ -536,8 +545,14 @@ class _ScanList(QtWidgets.QListWidget):
         self._clear()
         i = 0
         while "Scan" + str(i + 1) in d:
-            self._add(i, d["Scan" + str(i + 1)], type=d["Scan" + str(i + 1)]["type"])
+            row = d["Scan" + str(i + 1)]
             i += 1
+            # Skip rows for axes that are not available in this widget (e.g. saved by another GUI).
+            scanners = self._motorScanners if row["type"] == "motorScan" else self._switchScanners
+            if row.get("name") not in scanners:
+                logging.warning(f"Scan row for axis '{row.get('name')}' is skipped because the axis is not available.")
+                continue
+            self._add(len(self._scans), row, type=row["type"])
 
 
 class _FileNameBox(QtWidgets.QGroupBox):
@@ -637,6 +652,13 @@ class ScanWidget(QtWidgets.QWidget):
         self._switchScanners = self._initSwitchScanners(switches)
         self._detectors = detectors
         self._initLayout(self._motorScanners, self._switchScanners, self._detectors)
+
+        self._running = False
+        self._watchedWindows = []
+        # Stop the scan before the window is closed or the application quits, so that no running thread is destroyed.
+        app = QtCore.QCoreApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self.stopAndWait)
 
     def _initMotorScanners(self, motors):
         """
@@ -744,7 +766,8 @@ class ScanWidget(QtWidgets.QWidget):
         self._loopCounts = {i: [0, 0] for i, _ in enumerate(self._list) if self._list[i].scanName == "loop"}
 
         self._worker = _ScanWorker(process)
-        self._thread = QtCore.QThread(self)
+        # The thread has no parent so that it is not destroyed with this widget while running.
+        self._thread = QtCore.QThread()
 
         self._worker.moveToThread(self._thread)
 
@@ -760,12 +783,15 @@ class ScanWidget(QtWidgets.QWidget):
         self._startBtn.setEnabled(False)
         self._stopBtn.setEnabled(True)
         self._oldName = self._storage.name
+        self._running = True
+        self._watchWindowClose()
         self._thread.start()
 
     def _scanFinished(self):
         """
         Handle scan completion and restore GUI and storage state.
         """
+        self._running = False
         self._startBtn.setEnabled(True)
         self._stopBtn.setEnabled(False)
         self._storage.name = self._oldName
@@ -824,17 +850,69 @@ class ScanWidget(QtWidgets.QWidget):
         """
         scanNamesDict["scanNames"] = [s.scanName for s in self._list]
 
+    @property
+    def isRunning(self):
+        """
+        Whether a scan is running.
+
+        Returns:
+            bool: True if a scan is running.
+        """
+        return self._running
+
+    def stopAndWait(self, timeout=30):
+        """
+        Stop the running scan and wait until it finishes, while processing Qt events.
+
+        If the scan does not finish within ``timeout`` (e.g. the hardware does not respond), the worker thread is terminated forcibly.
+
+        Args:
+            timeout (float): Timeout in seconds.
+
+        Returns:
+            bool: True if the scan finished within the timeout (or was not running).
+        """
+        if not self._running:
+            return True
+        loop = QtCore.QEventLoop()
+        self._thread.finished.connect(loop.quit)
+        QtCore.QTimer.singleShot(int(timeout * 1000), loop.quit)
+        self._stop()
+        loop.exec_()
+        if not self._running:
+            return True
+
+        logging.warning("The scan did not stop in time. The scan thread is terminated.")
+        self._thread.quit()
+        self._thread.wait()
+        QtCore.QCoreApplication.processEvents()
+        return False
+
+    def _watchWindowClose(self):
+        """
+        Install an event filter on the enclosing sub windows to stop the scan when they are closed.
+        """
+        w = self.parentWidget()
+        while w is not None:
+            if isinstance(w, QtWidgets.QMdiSubWindow) and w not in self._watchedWindows:
+                w.installEventFilter(self)
+                self._watchedWindows.append(w)
+            w = w.parentWidget()
+
+    def showEvent(self, event):
+        self._watchWindowClose()
+        super().showEvent(event)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QtCore.QEvent.Close:
+            self.stopAndWait()
+        return super().eventFilter(obj, event)
+
     def closeEvent(self, event):
         """
-        Event handler for window close event.
-
-        If the scan is running when the window is closed, 
-        this method will force the scan to stop and wait for the thread to finish before accepting the close event.
+        Stop the running scan before the widget is closed.
         """
-        if hasattr(self, "_thread") and self._thread.isRunning():
-            QtCore.QMetaObject.invokeMethod(self._worker, "forceStop", QtCore.Qt.BlockingQueuedConnection)
-            self._thread.quit()
-            self._thread.wait()
+        self.stopAndWait()
         event.accept()
 
 
@@ -880,13 +958,6 @@ class _ScanWorker(QtCore.QObject):
         Request the scan to stop by emitting the stop signal and invoking the `stop()` method of the process with a queued connection.
         """
         QtCore.QMetaObject.invokeMethod(self._process, "stop", QtCore.Qt.QueuedConnection)
-
-    @QtCore.pyqtSlot()
-    def forceStop(self):
-        """
-        Force the scan to stop by invoking the `stop()` method of the process with a blocking connection.
-        """
-        QtCore.QMetaObject.invokeMethod(self._process, "stop", QtCore.Qt.BlockingQueuedConnection)
 
 
 class _Loop(QtCore.QObject):

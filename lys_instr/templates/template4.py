@@ -1,6 +1,7 @@
 from lys.widgets import LysSubWindow
 from lys.Qt import QtWidgets
 from lys_instr import DataStorage, gui, dummy
+from . import releaseOnClose
 
 
 class TemplateWindow(LysSubWindow):
@@ -11,6 +12,7 @@ class TemplateWindow(LysSubWindow):
         self._detector = detector if detector else dummy.MultiDetectorDummy(indexShape=(9, 9), frameShape=(256, 256))
         self._motor = motor if motor else dummy.MultiMotorDummy("t")
         self._storage.connect(self._detector)
+        releaseOnClose(self, [d for d, given in ((self._detector, detector), (self._motor, motor)) if not given])
         self._detectorName = detectorName
         self._initLayout()
         self.setSettingFile("template4.dic")

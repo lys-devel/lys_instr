@@ -187,7 +187,10 @@ class DetectorInterface(HardwareInterface):
             if self._busy is False:
                 return
             self.busyStateChanged.connect(on_busy_changed, QtCore.Qt.QueuedConnection)
-        loop.exec_()
+        try:
+            loop.exec_()
+        finally:
+            self.busyStateChanged.disconnect(on_busy_changed)
 
     def stop(self):
         """
