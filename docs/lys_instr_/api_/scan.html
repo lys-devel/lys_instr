@@ -94,7 +94,224 @@
 <em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">lys_instr.gui.MultiScan.</span></span><span class="sig-name descname"><span class="pre">ScanWidget</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">storage</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">motors</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">switches</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">detectors</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/gui/MultiScan.html#ScanWidget"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget" title="Link to this definition"></a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">QWidget</span></code></p>
 <p>Scan configuration and execution panel.</p>
-<p>Provides a list-based GUI for composing a sequence of motor and switch scans, configuring detector/process settings, and starting/stopping scan execution.</p>
+<p>Provides a list-based GUI for composing a sequence of motor and switch scans, configuring detector/process settings, and starting/stopping scan execution.
+The scan can also be configured and executed programmatically (see <code class="docutils literal notranslate"><span class="pre">setScanList()</span></code>, <code class="docutils literal notranslate"><span class="pre">start()</span></code> and <code class="docutils literal notranslate"><span class="pre">waitForFinished()</span></code>), and the GUI follows the changes.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.closeEvent">
+<span class="sig-name descname"><span class="pre">closeEvent</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">event</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/gui/MultiScan.html#ScanWidget.closeEvent"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.closeEvent" title="Link to this definition"></a></dt>
+<dd><p>Stop the running scan before the widget is closed.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.detector">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">detector</span></span><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.detector" title="Link to this definition"></a></dt>
+<dd><p>Name of the detector used for scans.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The detector name.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.eventFilter">
+<span class="sig-name descname"><span class="pre">eventFilter</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a0</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">QObject</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">QEvent</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span><a class="reference internal" href="../../_modules/lys_instr/gui/MultiScan.html#ScanWidget.eventFilter"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.eventFilter" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.exposure">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">exposure</span></span><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.exposure" title="Link to this definition"></a></dt>
+<dd><p>Exposure time used for scans.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The exposure time.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>float</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.fileName">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">fileName</span></span><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.fileName" title="Link to this definition"></a></dt>
+<dd><p>Template of the file names for scans.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The template. <code class="docutils literal notranslate"><span class="pre">{1}</span></code>, <code class="docutils literal notranslate"><span class="pre">{2}</span></code>, … are replaced by the scan values and <code class="docutils literal notranslate"><span class="pre">[1]</span></code>, <code class="docutils literal notranslate"><span class="pre">[2]</span></code>, … by the scan indices.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.isRunning">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">isRunning</span></span><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.isRunning" title="Link to this definition"></a></dt>
+<dd><p>Whether a scan is running.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if a scan is running.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.scanFinished">
+<span class="sig-name descname"><span class="pre">scanFinished</span></span><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.scanFinished" title="Link to this definition"></a></dt>
+<dd><p>Signal emitted when a scan finishes (completed or stopped).</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.scanList">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">scanList</span></span><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.scanList" title="Link to this definition"></a></dt>
+<dd><p>Current scan list.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Scan rows from the outermost (Scan1) to the innermost. Each row has keys <code class="docutils literal notranslate"><span class="pre">&quot;type&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;name&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;mode&quot;</span></code> and <code class="docutils literal notranslate"><span class="pre">&quot;range&quot;</span></code> (see <code class="docutils literal notranslate"><span class="pre">setScanList()</span></code>).</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>list[dict]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.scanStarted">
+<span class="sig-name descname"><span class="pre">scanStarted</span></span><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.scanStarted" title="Link to this definition"></a></dt>
+<dd><p>Signal emitted when a scan starts.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.setDetector">
+<span class="sig-name descname"><span class="pre">setDetector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/gui/MultiScan.html#ScanWidget.setDetector"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.setDetector" title="Link to this definition"></a></dt>
+<dd><p>Set the detector used for scans.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>name</strong> (<em>str</em>) – The detector name.</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>ValueError</strong> – If the detector is not found.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.setExposure">
+<span class="sig-name descname"><span class="pre">setExposure</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/gui/MultiScan.html#ScanWidget.setExposure"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.setExposure" title="Link to this definition"></a></dt>
+<dd><p>Set the exposure time used for scans.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>value</strong> (<em>float</em>) – The exposure time.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.setFileName">
+<span class="sig-name descname"><span class="pre">setFileName</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/gui/MultiScan.html#ScanWidget.setFileName"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.setFileName" title="Link to this definition"></a></dt>
+<dd><p>Set the template of the file names for scans.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>name</strong> (<em>str</em><em> | </em><em>None</em>) – The template (see <code class="docutils literal notranslate"><span class="pre">fileName</span></code>). If None, the default template is used.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.setScanList">
+<span class="sig-name descname"><span class="pre">setScanList</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">rows</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/gui/MultiScan.html#ScanWidget.setScanList"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.setScanList" title="Link to this definition"></a></dt>
+<dd><p>Set the scan list.</p>
+<p>Each row is a dict with the following keys:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">name</span></code> (str): Axis name. <code class="docutils literal notranslate"><span class="pre">&quot;loop&quot;</span></code> simply repeats the acquisition.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">range</span></code>: For motor axes, <code class="docutils literal notranslate"><span class="pre">(from,</span> <span class="pre">step,</span> <span class="pre">numberOfSteps)</span></code> in Linear mode or a comma-separated string of values in Free mode.
+For switch axes, omit it to iterate over all labels, or give a comma-separated string (or list) of labels.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">mode</span></code> (str, optional): <code class="docutils literal notranslate"><span class="pre">&quot;Linear&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;Free&quot;</span></code> for motor axes, <code class="docutils literal notranslate"><span class="pre">&quot;Iteration&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;Free&quot;</span></code> for switch axes.
+If omitted, a string <code class="docutils literal notranslate"><span class="pre">range</span></code> means Free mode and a sequence means Linear mode. Specify <code class="docutils literal notranslate"><span class="pre">mode=&quot;Free&quot;</span></code> to give the values of a motor axis as a list.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">type</span></code> (str, optional): Ignored. Inferred from the axis.</p></li>
+</ul>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">scan</span><span class="o">.</span><span class="n">setScanList</span><span class="p">([{</span><span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;range&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">)},</span> <span class="p">{</span><span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;range&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">,</span> <span class="mi">5</span><span class="p">)}])</span>
+</pre></div>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>rows</strong> (<em>list</em><em>[</em><em>dict</em><em>]</em>) – Scan rows from the outermost (Scan1) to the innermost.</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>ValueError</strong> – If a row is invalid (e.g. unknown axis).</p></li>
+<li><p><strong>RuntimeError</strong> – If a scan is running.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.showEvent">
+<span class="sig-name descname"><span class="pre">showEvent</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">self</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a0</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">QShowEvent</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/gui/MultiScan.html#ScanWidget.showEvent"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.showEvent" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.start">
+<span class="sig-name descname"><span class="pre">start</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/gui/MultiScan.html#ScanWidget.start"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.start" title="Link to this definition"></a></dt>
+<dd><p>Start a scan with the current settings.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>RuntimeError</strong> – If a scan is already running.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.stop">
+<span class="sig-name descname"><span class="pre">stop</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/gui/MultiScan.html#ScanWidget.stop"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.stop" title="Link to this definition"></a></dt>
+<dd><p>Request the running scan to stop. Use <code class="docutils literal notranslate"><span class="pre">waitForFinished()</span></code> to wait until it stops.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.stopAndWait">
+<span class="sig-name descname"><span class="pre">stopAndWait</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">30</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/gui/MultiScan.html#ScanWidget.stopAndWait"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.stopAndWait" title="Link to this definition"></a></dt>
+<dd><p>Stop the running scan and wait until it finishes, while processing Qt events.</p>
+<p>If the scan does not finish within <code class="docutils literal notranslate"><span class="pre">timeout</span></code> (e.g. the hardware does not respond), the worker thread is terminated forcibly.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>timeout</strong> (<em>float</em>) – Timeout in seconds.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if the scan finished within the timeout (or was not running).</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiScan.ScanWidget.waitForFinished">
+<span class="sig-name descname"><span class="pre">waitForFinished</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/gui/MultiScan.html#ScanWidget.waitForFinished"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.gui.MultiScan.ScanWidget.waitForFinished" title="Link to this definition"></a></dt>
+<dd><p>Block until the running scan finishes, while processing Qt events.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>timeout</strong> (<em>float</em><em> | </em><em>None</em>) – Timeout in seconds. If None, wait without timeout.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if the scan is finished (or not running), False if timed out.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
 </dd></dl>
 
 </section>

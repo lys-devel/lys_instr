@@ -50,6 +50,7 @@
 <li class="toctree-l3"><a class="reference internal" href="handsOn.html">A Simple Hands-On Example</a></li>
 <li class="toctree-l3 current"><a class="current reference internal" href="#">Motor</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#creating-a-motor-instance">Creating a Motor Instance</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#requirements-for-implementations">Requirements for Implementations</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#step-by-step-demonstration">Step-by-Step Demonstration</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#checking-operations">Checking Operations</a></li>
 </ul>
@@ -125,6 +126,26 @@
         <span class="k">return</span> <span class="o">...</span> <span class="n">a</span> <span class="n">dictionary</span> <span class="k">with</span> <span class="n">axis</span> <span class="n">names</span> <span class="k">as</span> <span class="n">keys</span> <span class="ow">and</span> <span class="n">alive</span> <span class="n">states</span> <span class="p">(</span><span class="nb">bool</span><span class="p">)</span> <span class="k">as</span> <span class="n">values</span> <span class="p">(</span><span class="kc">True</span> <span class="k">if</span> <span class="n">alive</span><span class="p">,</span> <span class="kc">False</span> <span class="k">if</span> <span class="ow">not</span><span class="p">)</span> <span class="o">...</span>
 </pre></div>
 </div>
+</section>
+<section id="requirements-for-implementations">
+<h2>Requirements for Implementations<a class="headerlink" href="#requirements-for-implementations" title="Link to this heading"></a></h2>
+<p>Your subclass must satisfy the following requirements, which <code class="docutils literal notranslate"><span class="pre">MultiMotorInterface</span></code> relies on.</p>
+<p><strong>Thread safety</strong>: All methods (<code class="docutils literal notranslate"><span class="pre">_set()</span></code>, <code class="docutils literal notranslate"><span class="pre">_get()</span></code>, <code class="docutils literal notranslate"><span class="pre">_stop()</span></code>, <code class="docutils literal notranslate"><span class="pre">_isBusy()</span></code>, <code class="docutils literal notranslate"><span class="pre">_isAlive()</span></code> and any other methods) may be called from any thread at any time, including concurrently.
+For example, <code class="docutils literal notranslate"><span class="pre">_get()</span></code>, <code class="docutils literal notranslate"><span class="pre">_isBusy()</span></code> and <code class="docutils literal notranslate"><span class="pre">_isAlive()</span></code> are called by the background monitoring thread, while <code class="docutils literal notranslate"><span class="pre">set()</span></code>, <code class="docutils literal notranslate"><span class="pre">get()</span></code> and <code class="docutils literal notranslate"><span class="pre">stop()</span></code> are called by the GUI, scans or scripts.
+Serialize the communication with the instrument in your subclass, for example by a lock shared by all objects that use the same connection.
+Hold the lock during a whole command-response exchange, and during sequences of commands that must not be interleaved.</p>
+<p><strong>Busy state</strong>: <code class="docutils literal notranslate"><span class="pre">_isBusy()</span></code> must report <code class="docutils literal notranslate"><span class="pre">True</span></code> for an axis as soon as <code class="docutils literal notranslate"><span class="pre">_set()</span></code> returns, until the motion is completed.
+If the instrument reports the motion only after a delay, keep the busy state in your subclass (for example, set a flag in <code class="docutils literal notranslate"><span class="pre">_set()</span></code> and clear it when the instrument reports completion).
+If the value is applied before <code class="docutils literal notranslate"><span class="pre">_set()</span></code> returns (for example, a parameter that is set instantly), <code class="docutils literal notranslate"><span class="pre">_isBusy()</span></code> may always return <code class="docutils literal notranslate"><span class="pre">False</span></code>.
+<code class="docutils literal notranslate"><span class="pre">set(wait=True)</span></code>, <code class="docutils literal notranslate"><span class="pre">waitForReady()</span></code> and scans rely on this to wait for the motion.</p>
+<p><strong>Checking your implementation</strong>: <code class="docutils literal notranslate"><span class="pre">test()</span></code> checks these and other requirements with the real instrument.
+Give the device-specific parameters, such as the positions to move between and the tolerance, as arguments.
+The motor is moved, so run it only when it is safe.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">report</span> <span class="o">=</span> <span class="n">motor</span><span class="o">.</span><span class="n">test</span><span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="n">start</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">target</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">tolerance</span><span class="o">=</span><span class="mf">1e-3</span><span class="p">,</span> <span class="n">stopTarget</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">report</span><span class="p">)</span>    <span class="c1"># shows the result of each check</span>
+</pre></div>
+</div>
+<p>Switches can be checked in the same way, e.g., <code class="docutils literal notranslate"><span class="pre">switch.test(&quot;shutter&quot;,</span> <span class="pre">start=&quot;OFF&quot;,</span> <span class="pre">target=&quot;ON&quot;)</span></code>.</p>
 </section>
 <section id="step-by-step-demonstration">
 <h2>Step-by-Step Demonstration<a class="headerlink" href="#step-by-step-demonstration" title="Link to this heading"></a></h2>

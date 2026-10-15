@@ -173,6 +173,13 @@ Signals <code class="docutils literal notranslate"><span class="pre">updated</sp
 </dl>
 </dd></dl>
 
+<dl class="py method">
+<dt class="sig sig-object py" id="lys_instr.dummy.MultiDetector.MultiDetectorDummy.startAcq">
+<span class="sig-name descname"><span class="pre">startAcq</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/dummy/MultiDetector.html#MultiDetectorDummy.startAcq"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.dummy.MultiDetector.MultiDetectorDummy.startAcq" title="Link to this definition"></a></dt>
+<dd><p>Start acquisition after clearing the stop request flag.</p>
+<p>The flag is cleared here rather than in <code class="docutils literal notranslate"><span class="pre">_run()</span></code> so that <code class="docutils literal notranslate"><span class="pre">stop()</span></code> called before the acquisition thread starts is not ignored.</p>
+</dd></dl>
+
 </dd></dl>
 
 <dl class="py class" id="module-lys_instr.dummy.detectorData.interface">

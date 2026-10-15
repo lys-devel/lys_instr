@@ -51,6 +51,7 @@
 <li class="toctree-l3"><a class="reference internal" href="motor.html">Motor</a></li>
 <li class="toctree-l3 current"><a class="current reference internal" href="#">Detector</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#creating-a-detector-instance">Creating a Detector Instance</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#requirements-for-implementations">Requirements for Implementations</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#step-by-step-demonstration">Step-by-Step Demonstration</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#checking-operations">Checking Operations</a></li>
 </ul>
@@ -142,6 +143,24 @@
 <p>For example, to acquire 10 images of size 256×256 while sweeping a motor over 10 steps, set <code class="docutils literal notranslate"><span class="pre">indexShape=(10,)</span></code> and <code class="docutils literal notranslate"><span class="pre">frameShape=(256,</span> <span class="pre">256)</span></code>.
 If no indexing is needed, simply omit <code class="docutils literal notranslate"><span class="pre">indexShape</span></code> or set <code class="docutils literal notranslate"><span class="pre">indexShape=()</span></code> (that is, a single frame per run).</p>
 <p>See <a class="reference internal" href="detectorGUI.html"><span class="doc">Detector GUI</span></a> for displaying non-two-dimensional frames.</p>
+</section>
+<section id="requirements-for-implementations">
+<h2>Requirements for Implementations<a class="headerlink" href="#requirements-for-implementations" title="Link to this heading"></a></h2>
+<p>Your subclass must satisfy the following requirements, which <code class="docutils literal notranslate"><span class="pre">MultiDetectorInterface</span></code> relies on.</p>
+<p><strong>Thread safety</strong>: All methods (<code class="docutils literal notranslate"><span class="pre">_run()</span></code>, <code class="docutils literal notranslate"><span class="pre">_get()</span></code>, <code class="docutils literal notranslate"><span class="pre">_stop()</span></code>, <code class="docutils literal notranslate"><span class="pre">_isAlive()</span></code>, properties and any other methods) may be called from any thread at any time, including concurrently.
+For example, <code class="docutils literal notranslate"><span class="pre">_run()</span></code> runs in the acquisition thread, <code class="docutils literal notranslate"><span class="pre">_get()</span></code> may be called from the acquisition thread and other threads while <code class="docutils literal notranslate"><span class="pre">_run()</span></code> is running,
+<code class="docutils literal notranslate"><span class="pre">_stop()</span></code> is called by the GUI, scans or scripts, and <code class="docutils literal notranslate"><span class="pre">_isAlive()</span></code> is called by the background monitoring thread.
+Protect the shared state and the communication with the instrument by locks.
+In particular, reading and clearing the buffer of acquired frames in <code class="docutils literal notranslate"><span class="pre">_get()</span></code> must be atomic with respect to <code class="docutils literal notranslate"><span class="pre">_run()</span></code> adding frames.</p>
+<p><strong>Busy state</strong>: The detector is regarded as busy while <code class="docutils literal notranslate"><span class="pre">_run()</span></code> is running.
+<code class="docutils literal notranslate"><span class="pre">_run()</span></code> must not return until the acquisition is completed (all frames are acquired and stored so that <code class="docutils literal notranslate"><span class="pre">_get()</span></code> returns them), or until <code class="docutils literal notranslate"><span class="pre">_stop()</span></code> is called.
+After <code class="docutils literal notranslate"><span class="pre">_stop()</span></code> is called, <code class="docutils literal notranslate"><span class="pre">_run()</span></code> must return promptly.</p>
+<p><strong>Checking your implementation</strong>: <code class="docutils literal notranslate"><span class="pre">test()</span></code> checks these and other requirements with the real instrument.
+The detector acquires data several times. Do not connect it to a DataStorage while checking.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">report</span> <span class="o">=</span> <span class="n">detector</span><span class="o">.</span><span class="n">test</span><span class="p">(</span><span class="n">exposure</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span> <span class="n">iterations</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">report</span><span class="p">)</span>    <span class="c1"># shows the result of each check</span>
+</pre></div>
+</div>
 </section>
 <section id="step-by-step-demonstration">
 <h2>Step-by-Step Demonstration<a class="headerlink" href="#step-by-step-demonstration" title="Link to this heading"></a></h2>

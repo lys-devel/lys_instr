@@ -51,6 +51,7 @@
 <li class="toctree-l3"><a class="reference internal" href="base.html">Base Classes</a></li>
 <li class="toctree-l3"><a class="reference internal" href="motor.html">Motor</a></li>
 <li class="toctree-l3 current"><a class="current reference internal" href="#">Detector</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#lys_instr.MultiDetector.AcquisitionRejectedError"><code class="docutils literal notranslate"><span class="pre">AcquisitionRejectedError</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#lys_instr.MultiDetector.DetectorInterface"><code class="docutils literal notranslate"><span class="pre">DetectorInterface</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#lys_instr.MultiDetector.MultiDetectorInterface"><code class="docutils literal notranslate"><span class="pre">MultiDetectorInterface</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#lys_instr.gui.MultiDetector.MultiDetectorGUI"><code class="docutils literal notranslate"><span class="pre">MultiDetectorGUI</span></code></a></li>
@@ -95,16 +96,34 @@
              
   <section id="module-lys_instr.MultiDetector">
 <span id="detector"></span><h1>Detector<a class="headerlink" href="#module-lys_instr.MultiDetector" title="Link to this heading"></a></h1>
+<dl class="py exception">
+<dt class="sig sig-object py" id="lys_instr.MultiDetector.AcquisitionRejectedError">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">lys_instr.MultiDetector.</span></span><span class="sig-name descname"><span class="pre">AcquisitionRejectedError</span></span><a class="reference internal" href="../../_modules/lys_instr/MultiDetector.html#AcquisitionRejectedError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.MultiDetector.AcquisitionRejectedError" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">RuntimeError</span></code></p>
+<p>Raised by <code class="docutils literal notranslate"><span class="pre">DetectorInterface.startAcq()</span></code> when a listener of <code class="docutils literal notranslate"><span class="pre">startRequested</span></code> rejects the acquisition.</p>
+</dd></dl>
+
 <dl class="py class">
 <dt class="sig sig-object py" id="lys_instr.MultiDetector.DetectorInterface">
 <em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">lys_instr.MultiDetector.</span></span><span class="sig-name descname"><span class="pre">DetectorInterface</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">exposure</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/MultiDetector.html#DetectorInterface"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.MultiDetector.DetectorInterface" title="Link to this definition"></a></dt>
 <dd><p>Bases: <a class="reference internal" href="base.html#lys_instr.Interfaces.HardwareInterface" title="lys_instr.Interfaces.HardwareInterface"><code class="xref py py-class docutils literal notranslate"><span class="pre">HardwareInterface</span></code></a></p>
 <p>Abstract interface for detector devices.</p>
 <p>This class provides background polling, threaded (worker) acquisition, and Qt signal management for detector state and data updates.
-Subclasses must implement device-specific methods: <code class="docutils literal notranslate"><span class="pre">_get()</span></code>, <code class="docutils literal notranslate"><span class="pre">_stop()</span></code>, and <code class="docutils literal notranslate"><span class="pre">_isAlive()</span></code>.
+Subclasses must implement device-specific methods: <code class="docutils literal notranslate"><span class="pre">_run()</span></code>, <code class="docutils literal notranslate"><span class="pre">_get()</span></code>, <code class="docutils literal notranslate"><span class="pre">_stop()</span></code>, and <code class="docutils literal notranslate"><span class="pre">_isAlive()</span></code>.
 <code class="docutils literal notranslate"><span class="pre">_get()</span></code> and <code class="docutils literal notranslate"><span class="pre">_stop()</span></code> should raise <code class="docutils literal notranslate"><span class="pre">RuntimeError</span></code> if the device is not responding or a communication error occurs.
 <code class="docutils literal notranslate"><span class="pre">_isAlive()</span></code> should always return the current alive state and should not raise <code class="docutils literal notranslate"><span class="pre">RuntimeError</span></code> that interrupts monitoring.
 The <code class="docutils literal notranslate"><span class="pre">updated</span></code> signal is emitted by the acquisition thread when new data is available.</p>
+<p>Requirements for subclasses:</p>
+<ul class="simple">
+<li><p><strong>Thread safety</strong>: All methods (<code class="docutils literal notranslate"><span class="pre">_run()</span></code>, <code class="docutils literal notranslate"><span class="pre">_get()</span></code>, <code class="docutils literal notranslate"><span class="pre">_stop()</span></code>, <code class="docutils literal notranslate"><span class="pre">_isAlive()</span></code>, properties and any other methods) may be called from any thread at any time, including concurrently.
+For example, <code class="docutils literal notranslate"><span class="pre">_run()</span></code> runs in the acquisition thread, <code class="docutils literal notranslate"><span class="pre">_get()</span></code> may be called from the acquisition thread and other threads while <code class="docutils literal notranslate"><span class="pre">_run()</span></code> is running,
+<code class="docutils literal notranslate"><span class="pre">_stop()</span></code> is called by the GUI, scans or scripts, and <code class="docutils literal notranslate"><span class="pre">_isAlive()</span></code> is called by the background monitoring thread.
+Subclasses must protect the shared state and the communication with the instrument by locks.
+In particular, reading and clearing the buffer of acquired frames in <code class="docutils literal notranslate"><span class="pre">_get()</span></code> must be atomic with respect to <code class="docutils literal notranslate"><span class="pre">_run()</span></code> adding frames.</p></li>
+<li><p><strong>Busy state</strong>: The detector is regarded as busy while <code class="docutils literal notranslate"><span class="pre">_run()</span></code> is running.
+<code class="docutils literal notranslate"><span class="pre">_run()</span></code> must not return until the acquisition is completed (all frames are acquired and stored so that <code class="docutils literal notranslate"><span class="pre">_get()</span></code> returns them), or until <code class="docutils literal notranslate"><span class="pre">_stop()</span></code> is called.
+After <code class="docutils literal notranslate"><span class="pre">_stop()</span></code> is called, <code class="docutils literal notranslate"><span class="pre">_run()</span></code> must return promptly.</p></li>
+</ul>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="lys_instr.MultiDetector.DetectorInterface.aliveStateChanged">
 <span class="sig-name descname"><span class="pre">aliveStateChanged</span></span><a class="headerlink" href="#lys_instr.MultiDetector.DetectorInterface.aliveStateChanged" title="Link to this definition"></a></dt>
@@ -120,7 +139,9 @@ The <code class="docutils literal notranslate"><span class="pre">updated</span><
 <dl class="py attribute">
 <dt class="sig sig-object py" id="lys_instr.MultiDetector.DetectorInterface.dataAcquired">
 <span class="sig-name descname"><span class="pre">dataAcquired</span></span><a class="headerlink" href="#lys_instr.MultiDetector.DetectorInterface.dataAcquired" title="Link to this definition"></a></dt>
-<dd><p>Signal (dict) emitted when data is acquired.</p>
+<dd><p>Signal (dict) emitted when data is acquired.
+It is emitted from the acquisition thread (or the thread calling <code class="docutils literal notranslate"><span class="pre">stop()</span></code>).
+Receivers connected with the default (auto) connection are called in their own threads.</p>
 </dd></dl>
 
 <dl class="py property">
@@ -167,6 +188,20 @@ The <code class="docutils literal notranslate"><span class="pre">updated</span><
 </dl>
 </dd></dl>
 
+<dl class="py property">
+<dt class="sig sig-object py" id="lys_instr.MultiDetector.DetectorInterface.iteration">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">iteration</span></span><a class="headerlink" href="#lys_instr.MultiDetector.DetectorInterface.iteration" title="Link to this definition"></a></dt>
+<dd><p>Number of iterations of the current (or last) acquisition.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of iterations. -1 means continuous run (streaming).</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>int</p>
+</dd>
+</dl>
+</dd></dl>
+
 <dl class="py method">
 <dt class="sig sig-object py" id="lys_instr.MultiDetector.DetectorInterface.settingsWidget">
 <span class="sig-name descname"><span class="pre">settingsWidget</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/MultiDetector.html#DetectorInterface.settingsWidget"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.MultiDetector.DetectorInterface.settingsWidget" title="Link to this definition"></a></dt>
@@ -198,14 +233,32 @@ The <code class="docutils literal notranslate"><span class="pre">updated</span><
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>dict[tuple, np.ndarray] | None</p>
 </dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#lys_instr.MultiDetector.AcquisitionRejectedError" title="lys_instr.MultiDetector.AcquisitionRejectedError"><strong>AcquisitionRejectedError</strong></a> – If a listener of <code class="docutils literal notranslate"><span class="pre">startRequested</span></code> rejects the acquisition (e.g. invalid save path).</p>
+</dd>
 </dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="lys_instr.MultiDetector.DetectorInterface.startRequested">
+<span class="sig-name descname"><span class="pre">startRequested</span></span><a class="headerlink" href="#lys_instr.MultiDetector.DetectorInterface.startRequested" title="Link to this definition"></a></dt>
+<dd><p>Signal (dict) emitted before acquisition starts with a request <code class="docutils literal notranslate"><span class="pre">{&quot;iter&quot;:</span> <span class="pre">int,</span> <span class="pre">&quot;errors&quot;:</span> <span class="pre">list[str]}</span></code>.
+Listeners can reject the acquisition by appending reasons to <code class="docutils literal notranslate"><span class="pre">errors</span></code>.
+Connect with <code class="docutils literal notranslate"><span class="pre">QtCore.Qt.DirectConnection</span></code> so that the check is finished before acquisition starts.</p>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="lys_instr.MultiDetector.DetectorInterface.stop">
 <span class="sig-name descname"><span class="pre">stop</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/MultiDetector.html#DetectorInterface.stop"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.MultiDetector.DetectorInterface.stop" title="Link to this definition"></a></dt>
 <dd><p>Stop the acquisition and emit the latest acquired data.</p>
-<p>This method waits for the acquisition worker thread to finish if it is running.</p>
+<p>This method waits for the acquisition worker thread to finish if it is running.
+Qt events are processed while waiting, so that the GUI is not frozen.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="lys_instr.MultiDetector.DetectorInterface.stopped">
+<span class="sig-name descname"><span class="pre">stopped</span></span><a class="headerlink" href="#lys_instr.MultiDetector.DetectorInterface.stopped" title="Link to this definition"></a></dt>
+<dd><p>Signal emitted when acquisition is stopped.</p>
 </dd></dl>
 
 <dl class="py attribute">
@@ -323,6 +376,31 @@ Subclasses should implement device-specific acquisition and property reporting l
 </dd>
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>NotImplementedError</strong> – If the subclass does not implement this property.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="lys_instr.MultiDetector.MultiDetectorInterface.test">
+<span class="sig-name descname"><span class="pre">test</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">exposure</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">iterations</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">60</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stopDelay</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">threads</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/MultiDetector.html#MultiDetectorInterface.test"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.MultiDetector.MultiDetectorInterface.test" title="Link to this definition"></a></dt>
+<dd><p>Check whether this detector implementation satisfies the requirements of lys_instr (e.g., thread safety and busy state).</p>
+<p>The detector acquires data several times. Do not connect it to a DataStorage while checking.
+See <code class="docutils literal notranslate"><span class="pre">lys_instr.conformance.checkDetector</span></code> for details.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>exposure</strong> (<em>float</em><em> | </em><em>None</em>) – Exposure time used for the checks. If None, the current exposure is used.</p></li>
+<li><p><strong>iterations</strong> (<em>int</em>) – Number of iterations used to check repeated acquisition.</p></li>
+<li><p><strong>timeout</strong> (<em>float</em>) – Timeout in seconds for each acquisition.</p></li>
+<li><p><strong>stopDelay</strong> (<em>float</em>) – Time in seconds after which <code class="docutils literal notranslate"><span class="pre">stop()</span></code> is called during continuous acquisition.</p></li>
+<li><p><strong>threads</strong> (<em>int</em>) – Number of threads used to check concurrent calls.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The results of the checks. Print it to see the details.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>ConformanceReport</p>
 </dd>
 </dl>
 </dd></dl>

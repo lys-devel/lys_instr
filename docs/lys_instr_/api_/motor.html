@@ -107,6 +107,17 @@
 Subclasses must implement device-specific methods: <code class="docutils literal notranslate"><span class="pre">_get()</span></code>, <code class="docutils literal notranslate"><span class="pre">_set()</span></code>, <code class="docutils literal notranslate"><span class="pre">_isBusy()</span></code>, and <code class="docutils literal notranslate"><span class="pre">_isAlive()</span></code>.
 <code class="docutils literal notranslate"><span class="pre">_get()</span></code>, <code class="docutils literal notranslate"><span class="pre">_set()</span></code>, and <code class="docutils literal notranslate"><span class="pre">_isBusy()</span></code> should raise <code class="docutils literal notranslate"><span class="pre">RuntimeError</span></code> on communication errors;
 <code class="docutils literal notranslate"><span class="pre">_isAlive()</span></code> should return the current alive state without raising <code class="docutils literal notranslate"><span class="pre">RuntimeError</span></code> that interrupts monitoring.</p>
+<p>Requirements for subclasses:</p>
+<ul class="simple">
+<li><p><strong>Thread safety</strong>: All methods (<code class="docutils literal notranslate"><span class="pre">_set()</span></code>, <code class="docutils literal notranslate"><span class="pre">_get()</span></code>, <code class="docutils literal notranslate"><span class="pre">_stop()</span></code>, <code class="docutils literal notranslate"><span class="pre">_isBusy()</span></code>, <code class="docutils literal notranslate"><span class="pre">_isAlive()</span></code> and any other methods) may be called from any thread at any time, including concurrently.
+For example, <code class="docutils literal notranslate"><span class="pre">_get()</span></code>, <code class="docutils literal notranslate"><span class="pre">_isBusy()</span></code> and <code class="docutils literal notranslate"><span class="pre">_isAlive()</span></code> are called by the background monitoring thread while <code class="docutils literal notranslate"><span class="pre">set()</span></code>, <code class="docutils literal notranslate"><span class="pre">get()</span></code> and <code class="docutils literal notranslate"><span class="pre">stop()</span></code> are called by the GUI, scans or scripts.
+Subclasses must serialize the communication with the instrument (e.g., by a lock shared by all objects using the same connection),
+including sequences of commands that must not be interleaved.</p></li>
+<li><p><strong>Busy state</strong>: <code class="docutils literal notranslate"><span class="pre">_isBusy()</span></code> must report <code class="docutils literal notranslate"><span class="pre">True</span></code> for an axis as soon as <code class="docutils literal notranslate"><span class="pre">_set()</span></code> returns, until the motion is completed.
+If the instrument reports the motion only after a delay, subclasses must keep the busy state by themselves (e.g., set a flag in <code class="docutils literal notranslate"><span class="pre">_set()</span></code> and clear it when the instrument reports completion).
+If the value is applied before <code class="docutils literal notranslate"><span class="pre">_set()</span></code> returns, <code class="docutils literal notranslate"><span class="pre">_isBusy()</span></code> may always return <code class="docutils literal notranslate"><span class="pre">False</span></code>.
+<code class="docutils literal notranslate"><span class="pre">set(wait=True)</span></code>, <code class="docutils literal notranslate"><span class="pre">waitForReady()</span></code> and scans rely on this to wait for the motion.</p></li>
+</ul>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="lys_instr.MultiController.MultiControllerInterface.aliveStateChanged">
 <span class="sig-name descname"><span class="pre">aliveStateChanged</span></span><a class="headerlink" href="#lys_instr.MultiController.MultiControllerInterface.aliveStateChanged" title="Link to this definition"></a></dt>
@@ -266,6 +277,33 @@ The base implementation returns <code class="docutils literal notranslate"><span
 <dd><p>Bases: <a class="reference internal" href="#lys_instr.MultiController.OffsettableMultiMotorInterface" title="lys_instr.MultiController.OffsettableMultiMotorInterface"><code class="xref py py-class docutils literal notranslate"><span class="pre">OffsettableMultiMotorInterface</span></code></a></p>
 <p>Multi-axis motor interface.</p>
 <p>Thin subclass of OffsettableMultiMotorInterface kept for semantic clarity and for future device-specific extensions.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="lys_instr.MultiController.MultiMotorInterface.test">
+<span class="sig-name descname"><span class="pre">test</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">axis</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tolerance</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">30</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stopTarget</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stopDelay</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">threads</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/MultiController.html#MultiMotorInterface.test"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.MultiController.MultiMotorInterface.test" title="Link to this definition"></a></dt>
+<dd><p>Check whether this motor implementation satisfies the requirements of lys_instr (e.g., thread safety and busy state).</p>
+<p>The motor is moved between <code class="docutils literal notranslate"><span class="pre">start</span></code> and <code class="docutils literal notranslate"><span class="pre">target</span></code>. See <code class="docutils literal notranslate"><span class="pre">lys_instr.conformance.checkMotor</span></code> for details.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>axis</strong> (<em>str</em>) – Name of the axis to be moved.</p></li>
+<li><p><strong>start</strong> (<em>float</em>) – Position where the checks start. The motor is left at this position.</p></li>
+<li><p><strong>target</strong> (<em>float</em>) – Position to move to.</p></li>
+<li><p><strong>tolerance</strong> (<em>float</em>) – Allowed difference between the target and the position after the motion.</p></li>
+<li><p><strong>timeout</strong> (<em>float</em>) – Timeout in seconds for each motion.</p></li>
+<li><p><strong>stopTarget</strong> (<em>float</em><em> | </em><em>None</em>) – Position far from <code class="docutils literal notranslate"><span class="pre">start</span></code> used to check <code class="docutils literal notranslate"><span class="pre">stop()</span></code>. If None, the stop check is skipped.</p></li>
+<li><p><strong>stopDelay</strong> (<em>float</em>) – Time in seconds after which <code class="docutils literal notranslate"><span class="pre">stop()</span></code> is called during the motion to <code class="docutils literal notranslate"><span class="pre">stopTarget</span></code>.</p></li>
+<li><p><strong>threads</strong> (<em>int</em>) – Number of threads used to check concurrent calls.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The results of the checks. Print it to see the details.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>ConformanceReport</p>
+</dd>
+</dl>
+</dd></dl>
+
 </dd></dl>
 
 <dl class="py class">
@@ -284,6 +322,30 @@ The base implementation returns <code class="docutils literal notranslate"><span
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p>list[str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="lys_instr.MultiController.MultiSwitchInterface.test">
+<span class="sig-name descname"><span class="pre">test</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">axis</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">30</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">threads</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/MultiController.html#MultiSwitchInterface.test"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.MultiController.MultiSwitchInterface.test" title="Link to this definition"></a></dt>
+<dd><p>Check whether this switch implementation satisfies the requirements of lys_instr (e.g., thread safety and busy state).</p>
+<p>The switch is changed between <code class="docutils literal notranslate"><span class="pre">start</span></code> and <code class="docutils literal notranslate"><span class="pre">target</span></code>. See <code class="docutils literal notranslate"><span class="pre">lys_instr.conformance.checkSwitch</span></code> for details.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>axis</strong> (<em>str</em>) – Name of the axis to be changed.</p></li>
+<li><p><strong>start</strong> (<em>str</em>) – Label where the checks start. The switch is left at this label.</p></li>
+<li><p><strong>target</strong> (<em>str</em>) – Label to change to.</p></li>
+<li><p><strong>timeout</strong> (<em>float</em>) – Timeout in seconds for each change.</p></li>
+<li><p><strong>threads</strong> (<em>int</em>) – Number of threads used to check concurrent calls.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The results of the checks. Print it to see the details.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>ConformanceReport</p>
 </dd>
 </dl>
 </dd></dl>
@@ -366,13 +428,17 @@ This class adds a per-axis offsets dictionary that is applied to <code class="do
 
 <dl class="py method">
 <dt class="sig sig-object py" id="lys_instr.MultiController.OffsettableMultiMotorInterface.set">
-<span class="sig-name descname"><span class="pre">set</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/MultiController.html#OffsettableMultiMotorInterface.set"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.MultiController.OffsettableMultiMotorInterface.set" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">set</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wait</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lock</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/MultiController.html#OffsettableMultiMotorInterface.set"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.MultiController.OffsettableMultiMotorInterface.set" title="Link to this definition"></a></dt>
 <dd><p>Set target values for axes in user coordinates (stored offsets subtracted).</p>
 <p>Adjust each provided value by adding the corresponding per-axis offset before delegating to the parent implementation.
 For example, calling <code class="docutils literal notranslate"><span class="pre">set(x=1.0)</span></code> will result in the value <code class="docutils literal notranslate"><span class="pre">1.0</span> <span class="pre">+</span> <span class="pre">self.offset.get('x',</span> <span class="pre">0)</span></code> being sent to the underlying controller.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>**kwargs</strong> (<em>float</em>) – Axis-value pairs in user coordinates.</p>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>wait</strong> (<em>bool</em><em>, </em><em>optional</em>) – If True, block until all axes become idle after setting. Defaults to False.</p></li>
+<li><p><strong>lock</strong> (<em>bool</em><em>, </em><em>optional</em>) – If True, acquire the instance mutex while applying targets. Defaults to True.</p></li>
+<li><p><strong>**kwargs</strong> (<em>float</em>) – Axis-value pairs in user coordinates.</p></li>
+</ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>None</p>
@@ -400,6 +466,20 @@ Listens to their <code class="docutils literal notranslate"><span class="pre">bu
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p>dict[str, <a class="reference internal" href="#lys_instr.MultiController.MultiMotorInterface" title="lys_instr.MultiController.MultiMotorInterface">MultiMotorInterface</a>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="lys_instr.gui.MultiMotor.MultiMotorGUI.memory">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">memory</span></span><a class="headerlink" href="#lys_instr.gui.MultiMotor.MultiMotorGUI.memory" title="Link to this definition"></a></dt>
+<dd><p>Memory widget for saving and loading positions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The memory widget, or None if the memory is not shown.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>ControllerMemory | None</p>
 </dd>
 </dl>
 </dd></dl>

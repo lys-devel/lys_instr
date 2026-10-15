@@ -110,6 +110,17 @@
 <span class="sd">    Subclasses must implement device-specific methods: ``_get()``, ``_set()``, ``_isBusy()``, and ``_isAlive()``. </span>
 <span class="sd">    ``_get()``, ``_set()``, and ``_isBusy()`` should raise ``RuntimeError`` on communication errors; </span>
 <span class="sd">    ``_isAlive()`` should return the current alive state without raising ``RuntimeError`` that interrupts monitoring.</span>
+
+<span class="sd">    Requirements for subclasses:</span>
+
+<span class="sd">    - **Thread safety**: All methods (``_set()``, ``_get()``, ``_stop()``, ``_isBusy()``, ``_isAlive()`` and any other methods) may be called from any thread at any time, including concurrently.</span>
+<span class="sd">      For example, ``_get()``, ``_isBusy()`` and ``_isAlive()`` are called by the background monitoring thread while ``set()``, ``get()`` and ``stop()`` are called by the GUI, scans or scripts.</span>
+<span class="sd">      Subclasses must serialize the communication with the instrument (e.g., by a lock shared by all objects using the same connection),</span>
+<span class="sd">      including sequences of commands that must not be interleaved.</span>
+<span class="sd">    - **Busy state**: ``_isBusy()`` must report ``True`` for an axis as soon as ``_set()`` returns, until the motion is completed.</span>
+<span class="sd">      If the instrument reports the motion only after a delay, subclasses must keep the busy state by themselves (e.g., set a flag in ``_set()`` and clear it when the instrument reports completion).</span>
+<span class="sd">      If the value is applied before ``_set()`` returns, ``_isBusy()`` may always return ``False``.</span>
+<span class="sd">      ``set(wait=True)``, ``waitForReady()`` and scans rely on this to wait for the motion.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="c1">#: Signal (dict) emitted when axis values change.</span>
@@ -132,40 +143,50 @@
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_info</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">_AxisInfo</span><span class="p">()</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">axisNamesAll</span><span class="p">}</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_mutex</span> <span class="o">=</span> <span class="n">QtCore</span><span class="o">.</span><span class="n">QMutex</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_generation</span> <span class="o">=</span> <span class="mi">0</span>   <span class="c1"># incremented every time set() is called</span>
 
-    <span class="nd">@lock</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_loadState</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Poll the device and update the state of all axes.</span>
 
 <span class="sd">        Emit the ``busyStateChanged`` and ``aliveStateChanged`` signals if any axis state has changed.</span>
 <span class="sd">        Log any runtime errors that occur during state loading.</span>
+
+<span class="sd">        The device is accessed without holding the instance mutex, so that ``set()`` called from other threads (e.g., the GUI) is not blocked during the communication.</span>
+<span class="sd">        The states are updated and the signals are emitted while holding the mutex.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">with</span> <span class="n">QtCore</span><span class="o">.</span><span class="n">QMutexLocker</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_mutex</span><span class="p">):</span>
+            <span class="n">generation</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_generation</span>
+            <span class="n">known</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">info</span><span class="o">.</span><span class="n">busy</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">info</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_info</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+
         <span class="k">try</span><span class="p">:</span>
             <span class="n">bs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_isBusy</span><span class="p">()</span>
-            <span class="n">busyUpdate</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">b</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">bs</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">b</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_info</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">busy</span><span class="p">}</span>
-
-            <span class="c1"># Emit valueChanged signal if any axis is busy</span>
-            <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">bs</span><span class="o">.</span><span class="n">values</span><span class="p">())</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">busyUpdate</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-                <span class="n">vs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">valueChanged</span><span class="o">.</span><span class="n">emit</span><span class="p">({</span><span class="n">name</span><span class="p">:</span> <span class="n">vs</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">bs</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">b</span> <span class="ow">or</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">busyUpdate</span><span class="p">})</span>
-
-            <span class="c1"># Update busy state log and emit busyStateChanged signal if any axis has changed its busy state</span>
-            <span class="k">if</span> <span class="n">busyUpdate</span><span class="p">:</span>
-                <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">busyUpdate</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-                    <span class="bp">self</span><span class="o">.</span><span class="n">_info</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">busy</span> <span class="o">=</span> <span class="n">b</span>
-                    <span class="k">if</span> <span class="n">b</span> <span class="ow">is</span> <span class="kc">False</span><span class="p">:</span>
-                        <span class="bp">self</span><span class="o">.</span><span class="n">_info</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">target</span> <span class="o">=</span> <span class="kc">None</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">busyStateChanged</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span><span class="n">busyUpdate</span><span class="p">)</span>
-
+            <span class="n">changed</span> <span class="o">=</span> <span class="p">[</span><span class="n">name</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">bs</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">b</span> <span class="o">!=</span> <span class="n">known</span><span class="p">[</span><span class="n">name</span><span class="p">]]</span>
+            <span class="n">vs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">()</span> <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">bs</span><span class="o">.</span><span class="n">values</span><span class="p">())</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">changed</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="k">except</span> <span class="ne">RuntimeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
             <span class="n">logging</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Runtime error in _loadState: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">bs</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">al</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_isAlive</span><span class="p">()</span>
 
-        <span class="k">finally</span><span class="p">:</span>
-            <span class="n">al</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_isAlive</span><span class="p">()</span>
-            <span class="n">aliveUpdate</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">a</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">al</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">a</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_info</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">alive</span><span class="p">}</span>
+        <span class="k">with</span> <span class="n">QtCore</span><span class="o">.</span><span class="n">QMutexLocker</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_mutex</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">bs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="c1"># Emit valueChanged signal if any axis is busy</span>
+                <span class="k">if</span> <span class="n">vs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">valueChanged</span><span class="o">.</span><span class="n">emit</span><span class="p">({</span><span class="n">name</span><span class="p">:</span> <span class="n">vs</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">bs</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">b</span> <span class="ow">or</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">changed</span><span class="p">})</span>
+
+                <span class="c1"># Update busy state log and emit busyStateChanged signal if any axis has changed its busy state.</span>
+                <span class="c1"># The busy state is discarded if set() was called during the communication, because it may be older than the command.</span>
+                <span class="k">if</span> <span class="n">generation</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_generation</span><span class="p">:</span>
+                    <span class="n">busyUpdate</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">b</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">bs</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">b</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_info</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">busy</span><span class="p">}</span>
+                    <span class="k">if</span> <span class="n">busyUpdate</span><span class="p">:</span>
+                        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">busyUpdate</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                            <span class="bp">self</span><span class="o">.</span><span class="n">_info</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">busy</span> <span class="o">=</span> <span class="n">b</span>
+                            <span class="k">if</span> <span class="n">b</span> <span class="ow">is</span> <span class="kc">False</span><span class="p">:</span>
+                                <span class="bp">self</span><span class="o">.</span><span class="n">_info</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">target</span> <span class="o">=</span> <span class="kc">None</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">busyStateChanged</span><span class="o">.</span><span class="n">emit</span><span class="p">(</span><span class="n">busyUpdate</span><span class="p">)</span>
 
             <span class="c1"># Update alive state if any axis has changed its alive state</span>
+            <span class="n">aliveUpdate</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">a</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">al</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">a</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_info</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">alive</span><span class="p">}</span>
             <span class="k">if</span> <span class="n">aliveUpdate</span><span class="p">:</span>
                 <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">aliveUpdate</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
                     <span class="bp">self</span><span class="o">.</span><span class="n">_info</span><span class="p">[</span><span class="n">name</span><span class="p">]</span><span class="o">.</span><span class="n">alive</span> <span class="o">=</span> <span class="n">a</span>
@@ -226,6 +247,7 @@
 
         <span class="c1"># Set actual values for the axes in kwargs</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_set</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_generation</span> <span class="o">+=</span> <span class="mi">1</span>
 
 <div class="viewcode-block" id="MultiControllerInterface.get">
 <a class="viewcode-back" href="../../lys_instr_/api_/motor.html#lys_instr.MultiController.MultiControllerInterface.get">[docs]</a>
@@ -275,15 +297,25 @@
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">loop</span> <span class="o">=</span> <span class="n">QtCore</span><span class="o">.</span><span class="n">QEventLoop</span><span class="p">()</span>
 
+        <span class="c1"># The busy state updated by the monitoring thread is used, so that the device is not accessed every time.</span>
         <span class="k">def</span><span class="w"> </span><span class="nf">on_busy_changed</span><span class="p">():</span>
-            <span class="k">if</span> <span class="ow">not</span> <span class="nb">any</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_isBusy</span><span class="p">()</span><span class="o">.</span><span class="n">values</span><span class="p">())</span> <span class="ow">and</span> <span class="n">loop</span><span class="o">.</span><span class="n">isRunning</span><span class="p">():</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">any</span><span class="p">(</span><span class="n">info</span><span class="o">.</span><span class="n">busy</span> <span class="k">for</span> <span class="n">info</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_info</span><span class="o">.</span><span class="n">values</span><span class="p">())</span> <span class="ow">and</span> <span class="n">loop</span><span class="o">.</span><span class="n">isRunning</span><span class="p">():</span>
                 <span class="n">loop</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
 
         <span class="k">with</span> <span class="n">QtCore</span><span class="o">.</span><span class="n">QMutexLocker</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_mutex</span><span class="p">):</span>
             <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_isBusy</span><span class="p">()</span><span class="o">.</span><span class="n">values</span><span class="p">())</span> <span class="ow">is</span> <span class="kc">False</span><span class="p">:</span>
                 <span class="k">return</span>
+            <span class="c1"># The busy state is updated by the monitoring thread, so do not wait if it is not running (e.g. killed).</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">isRunning</span><span class="p">():</span>
+                <span class="n">logging</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">&quot;The monitoring thread is not running. Cannot wait for the device to be ready.&quot;</span><span class="p">)</span>
+                <span class="k">return</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">busyStateChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">on_busy_changed</span><span class="p">,</span> <span class="n">QtCore</span><span class="o">.</span><span class="n">Qt</span><span class="o">.</span><span class="n">QueuedConnection</span><span class="p">)</span>
-        <span class="n">loop</span><span class="o">.</span><span class="n">exec_</span><span class="p">()</span></div>
+            <span class="bp">self</span><span class="o">.</span><span class="n">finished</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">loop</span><span class="o">.</span><span class="n">quit</span><span class="p">,</span> <span class="n">QtCore</span><span class="o">.</span><span class="n">Qt</span><span class="o">.</span><span class="n">QueuedConnection</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">loop</span><span class="o">.</span><span class="n">exec_</span><span class="p">()</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">busyStateChanged</span><span class="o">.</span><span class="n">disconnect</span><span class="p">(</span><span class="n">on_busy_changed</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">finished</span><span class="o">.</span><span class="n">disconnect</span><span class="p">(</span><span class="n">loop</span><span class="o">.</span><span class="n">quit</span><span class="p">)</span></div>
 
         
     <span class="nd">@property</span>
@@ -348,6 +380,9 @@
     <span class="k">def</span><span class="w"> </span><span class="nf">_isBusy</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Should be implemented in subclasses to provide device-specific logic for determining busy state.</span>
+
+<span class="sd">        The busy state must be ``True`` as soon as ``_set()`` returns, until the motion is completed (see the class documentation).</span>
+<span class="sd">        This method may be called from any thread.</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            dict[str, bool]: Mapping of axis names to their busy state.</span>
@@ -415,6 +450,28 @@
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">axisNamesAll</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_labels</span> <span class="o">=</span> <span class="n">labelNames</span>
+
+<div class="viewcode-block" id="MultiSwitchInterface.test">
+<a class="viewcode-back" href="../../lys_instr_/api_/motor.html#lys_instr.MultiController.MultiSwitchInterface.test">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">test</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">axis</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">threads</span><span class="o">=</span><span class="mi">4</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Check whether this switch implementation satisfies the requirements of lys_instr (e.g., thread safety and busy state).</span>
+
+<span class="sd">        The switch is changed between ``start`` and ``target``. See ``lys_instr.conformance.checkSwitch`` for details.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            axis (str): Name of the axis to be changed.</span>
+<span class="sd">            start (str): Label where the checks start. The switch is left at this label.</span>
+<span class="sd">            target (str): Label to change to.</span>
+<span class="sd">            timeout (float): Timeout in seconds for each change.</span>
+<span class="sd">            threads (int): Number of threads used to check concurrent calls.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            ConformanceReport: The results of the checks. Print it to see the details.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">.conformance</span><span class="w"> </span><span class="kn">import</span> <span class="n">checkSwitch</span>
+        <span class="k">return</span> <span class="n">checkSwitch</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">axis</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">,</span> <span class="n">threads</span><span class="o">=</span><span class="n">threads</span><span class="p">)</span></div>
+
 
     <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">labelNames</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
@@ -506,7 +563,7 @@
 
 <div class="viewcode-block" id="OffsettableMultiMotorInterface.set">
 <a class="viewcode-back" href="../../lys_instr_/api_/motor.html#lys_instr.MultiController.OffsettableMultiMotorInterface.set">[docs]</a>
-    <span class="k">def</span><span class="w"> </span><span class="nf">set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">wait</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">lock</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Set target values for axes in user coordinates (stored offsets subtracted).</span>
 
@@ -514,13 +571,15 @@
 <span class="sd">        For example, calling ``set(x=1.0)`` will result in the value ``1.0 + self.offset.get(&#39;x&#39;, 0)`` being sent to the underlying controller.</span>
 
 <span class="sd">        Args:</span>
+<span class="sd">            wait (bool, optional): If True, block until all axes become idle after setting. Defaults to False.</span>
+<span class="sd">            lock (bool, optional): If True, acquire the instance mutex while applying targets. Defaults to True.</span>
 <span class="sd">            **kwargs (float): Axis-value pairs in user coordinates.</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            None</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{</span><span class="n">key</span><span class="p">:</span> <span class="n">value</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">offset</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
-        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span></div>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">wait</span><span class="o">=</span><span class="n">wait</span><span class="p">,</span> <span class="n">lock</span><span class="o">=</span><span class="n">lock</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="OffsettableMultiMotorInterface.get">
@@ -605,7 +664,31 @@
 
 <span class="sd">    Thin subclass of OffsettableMultiMotorInterface kept for semantic clarity and for future device-specific extensions.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">pass</span></div>
+
+<div class="viewcode-block" id="MultiMotorInterface.test">
+<a class="viewcode-back" href="../../lys_instr_/api_/motor.html#lys_instr.MultiController.MultiMotorInterface.test">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">test</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">axis</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">tolerance</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">stopTarget</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">stopDelay</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">threads</span><span class="o">=</span><span class="mi">4</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Check whether this motor implementation satisfies the requirements of lys_instr (e.g., thread safety and busy state).</span>
+
+<span class="sd">        The motor is moved between ``start`` and ``target``. See ``lys_instr.conformance.checkMotor`` for details.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            axis (str): Name of the axis to be moved.</span>
+<span class="sd">            start (float): Position where the checks start. The motor is left at this position.</span>
+<span class="sd">            target (float): Position to move to.</span>
+<span class="sd">            tolerance (float): Allowed difference between the target and the position after the motion.</span>
+<span class="sd">            timeout (float): Timeout in seconds for each motion.</span>
+<span class="sd">            stopTarget (float | None): Position far from ``start`` used to check ``stop()``. If None, the stop check is skipped.</span>
+<span class="sd">            stopDelay (float): Time in seconds after which ``stop()`` is called during the motion to ``stopTarget``.</span>
+<span class="sd">            threads (int): Number of threads used to check concurrent calls.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            ConformanceReport: The results of the checks. Print it to see the details.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">.conformance</span><span class="w"> </span><span class="kn">import</span> <span class="n">checkMotor</span>
+        <span class="k">return</span> <span class="n">checkMotor</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">axis</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">tolerance</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">,</span> <span class="n">stopTarget</span><span class="o">=</span><span class="n">stopTarget</span><span class="p">,</span> <span class="n">stopDelay</span><span class="o">=</span><span class="n">stopDelay</span><span class="p">,</span> <span class="n">threads</span><span class="o">=</span><span class="n">threads</span><span class="p">)</span></div>
+</div>
 
 </pre></div>
 

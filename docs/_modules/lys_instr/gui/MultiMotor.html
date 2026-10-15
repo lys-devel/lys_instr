@@ -122,6 +122,16 @@
             <span class="n">obj</span><span class="o">.</span><span class="n">aliveStateChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_aliveStateChanged</span><span class="p">)</span>
 
     <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">memory</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Memory widget for saving and loading positions.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            ControllerMemory | None: The memory widget, or None if the memory is not shown.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_memory</span>
+
+    <span class="nd">@property</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">controllers</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Mapping of axis names to respective controllers (motors).</span>
@@ -165,6 +175,7 @@
         <span class="n">gl</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_execute</span><span class="p">,</span> <span class="mi">2</span> <span class="o">+</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_items</span><span class="p">),</span> <span class="mi">3</span><span class="p">)</span>
         <span class="n">gl</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">SettingsButton</span><span class="p">(</span><span class="n">clicked</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_showSettings</span><span class="p">),</span> <span class="mi">2</span> <span class="o">+</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_items</span><span class="p">),</span> <span class="mi">0</span><span class="p">)</span>
 
+        <span class="bp">self</span><span class="o">.</span><span class="n">_memory</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="k">if</span> <span class="n">memory</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">setLayout</span><span class="p">(</span><span class="n">gl</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
@@ -173,7 +184,8 @@
             <span class="k">else</span><span class="p">:</span>
                 <span class="n">box</span> <span class="o">=</span> <span class="n">QtWidgets</span><span class="o">.</span><span class="n">QHBoxLayout</span><span class="p">()</span>
             <span class="n">box</span><span class="o">.</span><span class="n">addLayout</span><span class="p">(</span><span class="n">gl</span><span class="p">)</span>
-            <span class="n">box</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">ControllerMemory</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_objs</span><span class="p">,</span> <span class="n">path</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_memory</span> <span class="o">=</span> <span class="n">ControllerMemory</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_objs</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
+            <span class="n">box</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_memory</span><span class="p">)</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">setLayout</span><span class="p">(</span><span class="n">box</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_setMoveToValue</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>

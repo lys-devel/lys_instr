@@ -140,6 +140,18 @@ It emits Qt signals to report saving state and to request metadata tags for save
 </dl>
 </dd></dl>
 
+<dl class="py attribute">
+<dt class="sig sig-object py" id="lys_instr.DataStorage.DataStorage.enabledChanged">
+<span class="sig-name descname"><span class="pre">enabledChanged</span></span><a class="headerlink" href="#lys_instr.DataStorage.DataStorage.enabledChanged" title="Link to this definition"></a></dt>
+<dd><p>Signal (bool) emitted when the enabled state changes.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="lys_instr.DataStorage.DataStorage.errorOccurred">
+<span class="sig-name descname"><span class="pre">errorOccurred</span></span><a class="headerlink" href="#lys_instr.DataStorage.DataStorage.errorOccurred" title="Link to this definition"></a></dt>
+<dd><p>Signal (str) emitted when reserving or saving a file fails.</p>
+</dd></dl>
+
 <dl class="py property">
 <dt class="sig sig-object py" id="lys_instr.DataStorage.DataStorage.folder">
 <em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">folder</span></span><a class="headerlink" href="#lys_instr.DataStorage.DataStorage.folder" title="Link to this definition"></a></dt>
@@ -204,6 +216,49 @@ If numbering is disabled this method returns <code class="docutils literal notra
 </dl>
 </dd></dl>
 
+<dl class="py property">
+<dt class="sig sig-object py" id="lys_instr.DataStorage.DataStorage.overwrite">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">overwrite</span></span><a class="headerlink" href="#lys_instr.DataStorage.DataStorage.overwrite" title="Link to this definition"></a></dt>
+<dd><p>Whether an existing file may be overwritten when automatic numbering is disabled.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if existing files may be overwritten.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="lys_instr.DataStorage.DataStorage.overwriteChanged">
+<span class="sig-name descname"><span class="pre">overwriteChanged</span></span><a class="headerlink" href="#lys_instr.DataStorage.DataStorage.overwriteChanged" title="Link to this definition"></a></dt>
+<dd><p>Signal (bool) emitted when the overwrite option changes.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="lys_instr.DataStorage.DataStorage.pathChanged">
+<span class="sig-name descname"><span class="pre">pathChanged</span></span><a class="headerlink" href="#lys_instr.DataStorage.DataStorage.pathChanged" title="Link to this definition"></a></dt>
+<dd><p>Signal emitted when the save path (base, folder, name, or numbered) changes.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="lys_instr.DataStorage.DataStorage.pathErrors">
+<span class="sig-name descname"><span class="pre">pathErrors</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/DataStorage.html#DataStorage.pathErrors"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.DataStorage.DataStorage.pathErrors" title="Link to this definition"></a></dt>
+<dd><p>Check whether the current save path can be used.</p>
+<p><code class="docutils literal notranslate"><span class="pre">base</span></code> must not be empty. <code class="docutils literal notranslate"><span class="pre">folder</span></code> may be empty (files are saved directly under <code class="docutils literal notranslate"><span class="pre">base</span></code>) and may contain sub folders separated by ‘/’ or ‘'.
+<code class="docutils literal notranslate"><span class="pre">name</span></code> must not be empty or contain path separators.
+Leading and trailing spaces, and characters or names that are invalid on Windows are not allowed.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Mapping from invalid property names (<code class="docutils literal notranslate"><span class="pre">&quot;base&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;folder&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;name&quot;</span></code>) to the reasons. Empty if the path is valid.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict[str, str]</p>
+</dd>
+</dl>
+</dd></dl>
+
 <dl class="py method">
 <dt class="sig sig-object py" id="lys_instr.DataStorage.DataStorage.reserve">
 <span class="sig-name descname"><span class="pre">reserve</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">shape</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fillValue</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/DataStorage.html#DataStorage.reserve"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.DataStorage.DataStorage.reserve" title="Link to this definition"></a></dt>
@@ -220,6 +275,27 @@ and update saving state via the <code class="docutils literal notranslate"><span
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>ValueError</strong> – If the save path is invalid (see <code class="docutils literal notranslate"><span class="pre">pathErrors()</span></code>) or the file must not be overwritten.</p></li>
+<li><p><strong>OSError</strong> – If the data folder cannot be created.</p></li>
+<li><p><strong>In both cases nothing is reserved and errorOccurred is emitted.</strong> – </p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="lys_instr.DataStorage.DataStorage.reservedCount">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">reservedCount</span></span><a class="headerlink" href="#lys_instr.DataStorage.DataStorage.reservedCount" title="Link to this definition"></a></dt>
+<dd><p>Number of files reserved but not yet passed to save threads.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of reserved files.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>int</p>
 </dd>
 </dl>
 </dd></dl>
@@ -244,10 +320,24 @@ Actual file write occurs in a <code class="docutils literal notranslate"><span c
 <dd><p>Whether a save operation is in progress.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Returns<span class="colon">:</span></dt>
-<dd class="field-odd"><p>True if a save operation is in progress, False otherwise.</p>
+<dd class="field-odd"><p>True if data is reserved or being written, False otherwise.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="lys_instr.DataStorage.DataStorage.savingCount">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">savingCount</span></span><a class="headerlink" href="#lys_instr.DataStorage.DataStorage.savingCount" title="Link to this definition"></a></dt>
+<dd><p>Number of files currently being written.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of files being written.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>int</p>
 </dd>
 </dl>
 </dd></dl>
@@ -266,12 +356,36 @@ Actual file write occurs in a <code class="docutils literal notranslate"><span c
 
 <dl class="py method">
 <dt class="sig sig-object py" id="lys_instr.DataStorage.DataStorage.update">
-<span class="sig-name descname"><span class="pre">update</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/DataStorage.html#DataStorage.update"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.DataStorage.DataStorage.update" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">update</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">detector</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/DataStorage.html#DataStorage.update"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.DataStorage.DataStorage.update" title="Link to this definition"></a></dt>
 <dd><p>Update the buffered data array with new values.</p>
-<p>Each entry in <code class="docutils literal notranslate"><span class="pre">data</span></code> maps an index tuple to a frame array; the buffer is updated in-place at those indices.</p>
+<p>Each entry in <code class="docutils literal notranslate"><span class="pre">data</span></code> maps an index tuple to a frame array; the buffer is updated in-place at those indices.
+The buffer is saved when frames for all indices (of all repetitions) have been received.
+Data is ignored if there is no reserved buffer, e.g. when storage was disabled at <code class="docutils literal notranslate"><span class="pre">reserve()</span></code> or the buffer has already been saved.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>data</strong> (<em>dict</em><em>[</em><em>tuple</em><em>, </em><em>np.ndarray</em><em>]</em>) – Mapping from index tuples to frame arrays used to update the buffer.</p>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>data</strong> (<em>dict</em><em>[</em><em>tuple</em><em>, </em><em>np.ndarray</em><em>]</em>) – Mapping from index tuples to frame arrays used to update the buffer.</p></li>
+<li><p><strong>detector</strong> (<code class="docutils literal notranslate"><span class="pre">MultiDetectorInterface</span></code>) – Detector instance to query for axes information.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="lys_instr.DataStorage.DataStorage.waitForSaved">
+<span class="sig-name descname"><span class="pre">waitForSaved</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/DataStorage.html#DataStorage.waitForSaved"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.DataStorage.DataStorage.waitForSaved" title="Link to this definition"></a></dt>
+<dd><p>Block until all reserved data are saved, while processing Qt events.</p>
+<p>Reserved data is saved when all frames are received or the detector is stopped.
+Specify <code class="docutils literal notranslate"><span class="pre">timeout</span></code> if the acquisition may not finish, otherwise this method does not return.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>timeout</strong> (<em>float</em><em> | </em><em>None</em>) – Timeout in seconds. If <code class="docutils literal notranslate"><span class="pre">None</span></code>, wait without timeout.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if all data are saved, False if timed out.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
 </dd>
 </dl>
 </dd></dl>
@@ -284,7 +398,8 @@ Actual file write occurs in a <code class="docutils literal notranslate"><span c
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">QWidget</span></code></p>
 <p>GUI widget for configuring data storage options.</p>
 <p>Provide controls to select base folder, data folder, file name, numbering, and enable/disable saving.
-Update the storage backend and show a saving-status indicator.</p>
+Update the storage backend and show a saving-status indicator.
+Changes made to the storage object programmatically are reflected in the widgets.</p>
 </dd></dl>
 
 </section>

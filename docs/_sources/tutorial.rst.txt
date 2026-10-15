@@ -22,4 +22,5 @@ Advanced
    lys_instr_/tutorial_/storageGUI
    lys_instr_/tutorial_/scanGUI
    lys_instr_/tutorial_/preCorrection
+   lys_instr_/tutorial_/lifecycle
 

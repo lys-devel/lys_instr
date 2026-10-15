@@ -115,7 +115,7 @@ The monitoring thread can be stopped by calling the instance’s <code class="do
 <dt class="sig sig-object py" id="lys_instr.Interfaces.HardwareInterface.killAll">
 <em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">killAll</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/lys_instr/Interfaces.html#HardwareInterface.killAll"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#lys_instr.Interfaces.HardwareInterface.killAll" title="Link to this definition"></a></dt>
 <dd><p>Stop all active monitoring threads for instances of this class.</p>
-<p>This method calls <code class="docutils literal notranslate"><span class="pre">kill()</span></code> on each registered device instance and clears the internal instance list <code class="docutils literal notranslate"><span class="pre">__list</span></code>.</p>
+<p>This method calls <code class="docutils literal notranslate"><span class="pre">kill()</span></code> on each registered device instance. Each instance is removed from the internal instance list <code class="docutils literal notranslate"><span class="pre">__list</span></code> when its thread finishes.</p>
 </dd></dl>
 
 <dl class="py method">
