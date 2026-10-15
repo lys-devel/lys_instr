@@ -4,6 +4,12 @@ from lys.Qt import QtCore
 from .Interfaces import HardwareInterface
 
 
+class AcquisitionRejectedError(RuntimeError):
+    """
+    Raised by ``DetectorInterface.startAcq()`` when a listener of ``startRequested`` rejects the acquisition.
+    """
+
+
 class _AcqThread(QtCore.QThread):
     """
     Acquisition thread for ``DetectorInterface``.
@@ -71,6 +77,11 @@ class DetectorInterface(HardwareInterface):
     #: Signal emitted when acquisition is stopped.
     stopped = QtCore.pyqtSignal()
 
+    #: Signal (dict) emitted before acquisition starts with a request ``{"iter": int, "errors": list[str]}``.
+    #: Listeners can reject the acquisition by appending reasons to ``errors``.
+    #: Connect with ``QtCore.Qt.DirectConnection`` so that the check is finished before acquisition starts.
+    startRequested = QtCore.pyqtSignal(object)
+
     def __init__(self, exposure=1, **kwargs):
         """
         Initialize the interface.
@@ -84,6 +95,7 @@ class DetectorInterface(HardwareInterface):
         self._mutex = QtCore.QMutex()
         self._busy = False
         self._iteration = 1
+        self._thread = None
 
     def _loadState(self):
         """
@@ -112,10 +124,20 @@ class DetectorInterface(HardwareInterface):
 
         Returns:
             dict[tuple, np.ndarray] | None: Acquired data that maps index tuples to frames when ``output`` is True; otherwise ``None``.
+
+        Raises:
+            AcquisitionRejectedError: If a listener of ``startRequested`` rejects the acquisition (e.g. invalid save path).
         """
         if self._busy:
             logging.warning("Detector is busy. Cannot start new acquisition.")
             return
+
+        request = {"iter": iter, "errors": []}
+        self.startRequested.emit(request)
+        if request["errors"]:
+            msg = "Acquisition was rejected: " + "; ".join(request["errors"])
+            logging.error(msg)
+            raise AcquisitionRejectedError(msg)
 
         self._busy = True
         self._iteration = iter

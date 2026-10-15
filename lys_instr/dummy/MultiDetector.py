@@ -32,7 +32,18 @@ class MultiDetectorDummy(MultiDetectorInterface):
         self.setData(data, indexShape, frameShape)
         self.exposure = exposure
         self.error = False
+        self._shouldStop = False
         self.start()
+
+    def startAcq(self, *args, **kwargs):
+        """
+        Start acquisition after clearing the stop request flag.
+
+        The flag is cleared here rather than in ``_run()`` so that ``stop()`` called before the acquisition thread starts is not ignored.
+        """
+        if not self.isBusy:
+            self._shouldStop = False
+        return super().startAcq(*args, **kwargs)
 
     def _run(self, iter=1):
         """
@@ -42,8 +53,6 @@ class MultiDetectorDummy(MultiDetectorInterface):
         store acquired frames into the internal buffer (``self._data``), and emit the notification signal (``updated``) after each frame.
         Return early if the stop request flag (``self._shouldStop``) is set.
         """
-        self._shouldStop = False
-        
         i = 0
         while i != iter:
             for idx, data in self._obj:

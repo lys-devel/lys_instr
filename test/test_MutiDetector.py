@@ -73,6 +73,27 @@ class TestMultiDetectorDummy(unittest.TestCase):
         detector.stop()
         self.assertFalse(detector.isBusy, "Detector should not be busy after stopping acquisition.")
 
+    def test_stop_immediately(self):
+        # stop() right after startAcq() should not be ignored even if the acquisition thread has not started yet.
+        for _ in range(20):
+            detector = MultiDetectorDummy(indexShape=(2, 2), frameShape=(3,), exposure=0.1)
+            detector.startAcq(iter=-1)
+            detector.stop()
+            timeout = 5  # seconds
+            start = time.time()
+            while detector.isBusy and (time.time() - start < timeout):
+                QtTest.QTest.qWait(10)
+            self.assertFalse(detector.isBusy, "Acquisition did not stop.")
+            detector.kill()
+
+    def test_stop_while_idle(self):
+        # stop() while idle should not affect the next acquisition.
+        detector = MultiDetectorDummy(indexShape=(2,), frameShape=(3,), exposure=0.01)
+        detector.stop()
+        data = detector.startAcq(wait=True, output=True)
+        self.assertEqual(len(data), 2)
+        detector.kill()
+
     def test_isAlive(self):
         detector = MultiDetectorDummy(indexShape=(2, 2), frameShape=(3,), exposure=0.1)
         self.assertTrue(detector.isAlive)

@@ -1,6 +1,8 @@
 import os
 import numpy as np
 from lys.Qt import QtWidgets, QtCore, QtGui
+from lys_instr import AcquisitionRejectedError
+from .widgets import showWarning
 
 
 class _MotorScanRow(QtWidgets.QWidget):
@@ -728,6 +730,7 @@ class ScanWidget(QtWidgets.QWidget):
         Builds the nested process chain from the configured scan list and starts the worker thread.
         """
         process = _DetectorProcess(self._detectors[self._detectorsBox.currentText()], self._exposure.value())
+        process.rejected.connect(self._acquisitionRejected)
         for s in self._list:
             process = _ScanProcess(s.scanName, s.scanObj, s.scanRange, process)
 
@@ -797,6 +800,16 @@ class ScanWidget(QtWidgets.QWidget):
         """
         if hasattr(self, "_worker"):
             QtCore.QMetaObject.invokeMethod(self._worker, "stop", QtCore.Qt.QueuedConnection)
+
+    def _acquisitionRejected(self, msg):
+        """
+        Stop the scan and show the reason when the detector rejects acquisition.
+
+        Args:
+            msg (str): The reason.
+        """
+        self._stop()
+        showWarning(self, "Scan stopped", msg)
 
     def _setScanNames(self, scanNamesDict):
         """
@@ -930,6 +943,9 @@ class _DetectorProcess(QtCore.QObject):
     # signal emitted after acquisition is finished
     finished = QtCore.pyqtSignal()
 
+    # signal (str) emitted when the detector rejects acquisition
+    rejected = QtCore.pyqtSignal(str)
+
     def __init__(self, detector, exposure):
         """
         Create a detector process wrapper.
@@ -941,6 +957,7 @@ class _DetectorProcess(QtCore.QObject):
         super().__init__()
         self._detector = detector
         self._exposure = exposure
+        self._rejected = False
 
         detector.busyStateChanged.connect(self._busyChanged)
 
@@ -953,7 +970,12 @@ class _DetectorProcess(QtCore.QObject):
         if self._detector.exposure is not None:
             self._detector.exposure = self._exposure
         self.beforeAcquisition.emit()
-        self._detector.startAcq()
+        try:
+            self._detector.startAcq()
+        except AcquisitionRejectedError as e:
+            # The scan should be stopped by the listener of rejected. finished is emitted in stop().
+            self._rejected = True
+            self.rejected.emit(str(e))
 
     def _busyChanged(self, busy):
         """
@@ -968,6 +990,10 @@ class _DetectorProcess(QtCore.QObject):
         """
         Stop the wrapped detector acquisition.
         """
+        if self._rejected:
+            self._rejected = False
+            self.finished.emit()
+            return
         self._detector.stop()
 
 

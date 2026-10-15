@@ -2,6 +2,22 @@ import qtawesome as qta
 from lys.Qt import QtWidgets, QtCore
 
 
+def showWarning(parent, title, text):
+    """
+    Show a non-modal warning dialog, which does not block the event loop (e.g. scans and remote control).
+
+    Args:
+        parent (QWidget): The parent widget.
+        title (str): The window title.
+        text (str): The message.
+    """
+    box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Warning, title, text, QtWidgets.QMessageBox.Ok, parent)
+    box.setAttribute(QtCore.Qt.WA_DeleteOnClose)
+    box.setModal(False)
+    box.show()
+    return box
+
+
 class AliveIndicator(QtWidgets.QLabel):
     """
     Alive-state indicator.

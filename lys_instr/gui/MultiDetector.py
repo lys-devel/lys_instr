@@ -3,7 +3,8 @@ import numpy as np
 from lys import multicut, Wave
 from lys.Qt import QtWidgets, QtCore
 
-from .widgets import AliveIndicator, SettingsButton
+from lys_instr import AcquisitionRejectedError
+from .widgets import AliveIndicator, SettingsButton, showWarning
 
 
 class MultiDetectorGUI(QtWidgets.QWidget):
@@ -138,10 +139,13 @@ class MultiDetectorGUI(QtWidgets.QWidget):
         Args:
             mode (str): "acquire" for a finite run or "stream" for continuous streaming (iter = -1).
         """
-        if mode == "acquire":
-            self._obj.startAcq(wait=self._params["wait"], iter=self._params["iter"])
-        else:
-            self._obj.startAcq(iter=-1)
+        try:
+            if mode == "acquire":
+                self._obj.startAcq(wait=self._params["wait"], iter=self._params["iter"])
+            else:
+                self._obj.startAcq(iter=-1)
+        except AcquisitionRejectedError as e:
+            showWarning(self, "Acquisition rejected", str(e))
 
     def _setButtonState(self):
         """

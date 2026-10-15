@@ -75,6 +75,7 @@ class DataStorage(QtCore.QObject):
         self._notes = None
         self._counter = 0
         self._axes_cache = None
+        self._saveError = None
 
     @property
     def base(self):
@@ -207,6 +208,9 @@ class DataStorage(QtCore.QObject):
                 errors["name"] = reason
         return errors
 
+    def _pathErrorMessage(self, errors):
+        return "Invalid save path: " + ", ".join(f"{key} '{getattr(self, key)}' {reason}" for key, reason in errors.items())
+
     def getNumber(self):
         """
         Return the next available file number for saving.
@@ -238,6 +242,38 @@ class DataStorage(QtCore.QObject):
         detector.dataAcquired.connect(lambda data: self.update(data, detector=detector))
         detector.busyStateChanged.connect(lambda b: self._busyStateChanged(detector, b))
         detector.stopped.connect(lambda: self._stopped(detector))
+        detector.startRequested.connect(self._checkStart, QtCore.Qt.DirectConnection)
+
+    def _checkStart(self, request):
+        """
+        Reject acquisition of the connected detector if the data cannot be saved.
+
+        The acquisition is rejected if the save path is invalid, the data folder cannot be created or is not writable, or the previous save failed.
+        The previous save failure is reported only once, so the next acquisition can be started after the error is confirmed.
+
+        Args:
+            request (dict): Request emitted by ``startRequested``. Reasons are appended to ``request["errors"]``.
+        """
+        if request["iter"] < 0 or not self.enabled:
+            return
+
+        errors = self.pathErrors()
+        if errors:
+            msg = self._pathErrorMessage(errors)
+        else:
+            folder = os.path.join(self.base, self.folder)
+            try:
+                os.makedirs(folder, exist_ok=True)
+                msg = None if os.access(folder, os.W_OK) else f"Data folder '{folder}' is not writable"
+            except OSError as e:
+                msg = f"Failed to create data folder '{folder}': {e}"
+        if msg is None and self._saveError is not None:
+            msg = f"Previous save failed. {self._saveError}"
+        self._saveError = None
+
+        if msg is not None:
+            request["errors"].append(msg)
+            self.errorOccurred.emit(msg)
 
     def _busyStateChanged(self, detector, busy):
         """
@@ -292,7 +328,7 @@ class DataStorage(QtCore.QObject):
 
         errors = self.pathErrors()
         if errors:
-            msg = "Invalid save path: " + ", ".join(f"{key} {reason}" for key, reason in errors.items())
+            msg = self._pathErrorMessage(errors)
             logging.error(msg)
             self.savingStateChanged.emit(self.saving)
             self.errorOccurred.emit(msg)
@@ -387,6 +423,7 @@ class DataStorage(QtCore.QObject):
         if thread.error is not None:
             msg = f"Failed to save '{thread.path}': {thread.error}"
             logging.error(msg)
+            self._saveError = msg
             self.errorOccurred.emit(msg)
 
     @property

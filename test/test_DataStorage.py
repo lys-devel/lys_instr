@@ -8,6 +8,7 @@ from PyQt5 import QtTest, QtWidgets
 from lys_instr.DataStorage import DataStorage
 from lys_instr.gui import DataStorageGUI
 from lys_instr.dummy import MultiDetectorDummy
+from lys_instr import AcquisitionRejectedError
 
 app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
@@ -330,3 +331,101 @@ class TestDataStorageGUI(unittest.TestCase):
         waitUntil(lambda: not storage.saving)
         self.assertEqual(gui._number.value(), 151)
         self.assertTrue(os.path.exists(os.path.join("folder", "data_150.npz")))
+
+
+class TestAcquisitionRejection(unittest.TestCase):
+
+    def setUp(self):
+        # GUIs write setting files in the current directory
+        self._cwd = os.getcwd()
+        self._tmp = tempfile.TemporaryDirectory()
+        os.chdir(self._tmp.name)
+        self.storage = DataStorage()
+        self.storage.base = self._tmp.name
+        self.detector = MultiDetectorDummy(indexShape=(1,), frameShape=(2,), exposure=0.01)
+        self.storage.connect(self.detector)
+        self.errors = []
+        self.storage.errorOccurred.connect(self.errors.append)
+
+    def tearDown(self):
+        self.detector.kill()
+        os.chdir(self._cwd)
+        self._tmp.cleanup()
+
+    def test_invalid_path(self):
+        self.storage.name = "a:b"
+        with self.assertRaises(AcquisitionRejectedError):
+            self.detector.startAcq()
+        self.assertFalse(self.detector.isBusy)
+        self.assertEqual(len(self.errors), 1)
+        self.assertFalse(os.path.exists(os.path.join(self._tmp.name, "folder")))
+
+    def test_folder_not_creatable(self):
+        open("afile", "w").close()
+        self.storage.base = os.path.join(self._tmp.name, "afile")
+        with self.assertRaises(AcquisitionRejectedError):
+            self.detector.startAcq()
+        self.assertFalse(self.detector.isBusy)
+
+    def test_not_rejected(self):
+        # Streaming and disabled storage are not saved, so the path is not checked.
+        self.storage.name = "a:b"
+        self.detector.startAcq(iter=-1)
+        self.detector.stop()
+        waitUntil(lambda: not self.detector.isBusy)
+        self.storage.enabled = False
+        self.detector.startAcq(wait=True)
+        self.assertEqual(self.errors, [])
+
+    def test_previous_save_failure(self):
+        self.detector.startAcq(wait=True)
+        waitUntil(lambda: not self.storage.saving)
+        try:
+            # Make the folder read-only after the start check so that saving fails.
+            self.storage.name = "next"
+            self.detector.startAcq()
+            os.chmod(os.path.join(self._tmp.name, "folder"), 0o555)
+            waitUntil(lambda: not self.detector.isBusy and not self.storage.saving)
+        finally:
+            os.chmod(os.path.join(self._tmp.name, "folder"), 0o755)
+        # The failure is reported once at the next start.
+        with self.assertRaises(AcquisitionRejectedError) as cm:
+            self.detector.startAcq()
+        self.assertIn("Previous save failed", str(cm.exception))
+        self.detector.startAcq(wait=True)
+        waitUntil(lambda: not self.storage.saving)
+        self.assertEqual(sorted(os.listdir(os.path.join(self._tmp.name, "folder"))), ["data_0.npz", "next_0.npz"])
+
+    def test_scan_stopped(self):
+        from lys_instr import dummy
+        from lys_instr.gui.MultiScan import ScanWidget
+        motor = dummy.MultiMotorDummy("x")
+        scan = ScanWidget(self.storage, [motor], [], {"det": self.detector})
+        if len(scan._list) == 0:
+            scan._list._add()
+        row = scan._list[0]
+        row._scanAxis.setCurrentText("x")
+        row._from.setValue(0)
+        row._step.setValue(1)
+        row._numSteps.setValue(5)
+        scan._nameBox._check.setChecked(False)
+        scan._nameBox._name.setText("pt_[1]")
+
+        # Make the file name invalid after the first point is saved.
+        names = []
+
+        def onPath():
+            names.append(self.storage.name)
+            if self.storage.name == "pt_1":
+                scan._name = "bad:[1]"
+        self.storage.pathChanged.connect(onPath)
+
+        scan._start()
+        waitUntil(lambda: scan._startBtn.isEnabled() and not self.storage.saving)
+        self.assertTrue(scan._startBtn.isEnabled(), "Scan should finish after rejection.")
+        self.assertEqual(sorted(os.listdir(os.path.join(self._tmp.name, "folder"))), ["pt_0.npz", "pt_1.npz"])
+        self.assertTrue(any("'bad:2'" in e for e in self.errors), self.errors)
+        boxes = [w for w in QtWidgets.QApplication.topLevelWidgets() if isinstance(w, QtWidgets.QMessageBox) and w.isVisible()]
+        self.assertEqual(len(boxes), 1)
+        boxes[0].close()
+        self.assertEqual(self.storage.name, "data", "File name should be restored after the scan.")
