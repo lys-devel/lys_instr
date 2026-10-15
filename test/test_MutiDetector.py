@@ -20,13 +20,15 @@ class TestMultiDetectorDummy(unittest.TestCase):
 
     def test_startAcq_data(self):
         detector = MultiDetectorDummy(indexShape=(2, 2), frameShape=(3,), exposure=0.1)
+        received = {}
+        detector.dataAcquired.connect(received.update)
         detector.startAcq()
 
         timeout = 5  # seconds
         start = time.time()
-        while len(detector._data) == 0 and (time.time() - start < timeout):
+        while len(received) == 0 and (time.time() - start < timeout):
             QtTest.QTest.qWait(10)
-        self.assertGreater(len(detector._data), 0, "No data acquired after starting acquisition.")
+        self.assertGreater(len(received), 0, "No data acquired after starting acquisition.")
 
     def test_startAcq_over(self):
         detector = MultiDetectorDummy(indexShape=(2, 2), frameShape=(3,), exposure=0.1)

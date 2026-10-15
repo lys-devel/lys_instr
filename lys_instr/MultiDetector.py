@@ -30,7 +30,6 @@ class _AcqThread(QtCore.QThread):
         """
         super().__init__()
         self._detector = detector
-        self._detector.updated.connect(self._onUpdated)
         self._iteration = iter
 
     def run(self, *args, **kwargs):
@@ -39,7 +38,13 @@ class _AcqThread(QtCore.QThread):
 
         Overrides the ``run()`` method of QThread and is called when the worker thread is started.
         """
-        self._detector._run(self._iteration)
+        # Get the data in this thread (not in the main thread) only while the acquisition is running,
+        # so that reading the data from the device does not block the GUI.
+        self._detector.updated.connect(self._onUpdated, QtCore.Qt.DirectConnection)
+        try:
+            self._detector._run(self._iteration)
+        finally:
+            self._detector.updated.disconnect(self._onUpdated)
         self._onUpdated()
 
     def _onUpdated(self):
@@ -56,10 +61,21 @@ class DetectorInterface(HardwareInterface):
     Abstract interface for detector devices.
 
     This class provides background polling, threaded (worker) acquisition, and Qt signal management for detector state and data updates.
-    Subclasses must implement device-specific methods: ``_get()``, ``_stop()``, and ``_isAlive()``.
+    Subclasses must implement device-specific methods: ``_run()``, ``_get()``, ``_stop()``, and ``_isAlive()``.
     ``_get()`` and ``_stop()`` should raise ``RuntimeError`` if the device is not responding or a communication error occurs.
     ``_isAlive()`` should always return the current alive state and should not raise ``RuntimeError`` that interrupts monitoring.
     The ``updated`` signal is emitted by the acquisition thread when new data is available.
+
+    Requirements for subclasses:
+
+    - **Thread safety**: All methods (``_run()``, ``_get()``, ``_stop()``, ``_isAlive()``, properties and any other methods) may be called from any thread at any time, including concurrently.
+      For example, ``_run()`` runs in the acquisition thread, ``_get()`` may be called from the acquisition thread and other threads while ``_run()`` is running,
+      ``_stop()`` is called by the GUI, scans or scripts, and ``_isAlive()`` is called by the background monitoring thread.
+      Subclasses must protect the shared state and the communication with the instrument by locks.
+      In particular, reading and clearing the buffer of acquired frames in ``_get()`` must be atomic with respect to ``_run()`` adding frames.
+    - **Busy state**: The detector is regarded as busy while ``_run()`` is running.
+      ``_run()`` must not return until the acquisition is completed (all frames are acquired and stored so that ``_get()`` returns them), or until ``_stop()`` is called.
+      After ``_stop()`` is called, ``_run()`` must return promptly.
     """
 
     #: Signal (bool) emitted when alive state changes.
@@ -69,6 +85,8 @@ class DetectorInterface(HardwareInterface):
     busyStateChanged = QtCore.pyqtSignal(bool)
 
     #: Signal (dict) emitted when data is acquired.
+    #: It is emitted from the acquisition thread (or the thread calling ``stop()``).
+    #: Receivers connected with the default (auto) connection are called in their own threads.
     dataAcquired = QtCore.pyqtSignal(dict)
 
     #: Signal emitted by the acquisition thread when new data is acquired.
@@ -143,6 +161,9 @@ class DetectorInterface(HardwareInterface):
         self._iteration = iter
         self.busyStateChanged.emit(True)
 
+        # The previous thread is kept until here so that it is not destroyed while finishing.
+        if self._thread is not None:
+            self._thread.wait()
         self._thread = _AcqThread(self, iter=iter)
         self._thread.dataAcquired.connect(self.dataAcquired.emit, type=QtCore.Qt.DirectConnection)
         self._thread.finished.connect(self._onAcqFinished, type=QtCore.Qt.DirectConnection)
@@ -163,12 +184,12 @@ class DetectorInterface(HardwareInterface):
         """
         Clean up after acquisition is finished.
 
-        Reset the acquisition thread reference, update the busy state, and emit the ``busyStateChanged`` signal.
+        Update the busy state and emit the ``busyStateChanged`` signal.
+        The reference to the thread is kept, because this method is called in the thread itself before it finishes.
         """
         with QtCore.QMutexLocker(self._mutex):
             self._busy = False
             self.busyStateChanged.emit(False)
-            self._thread = None
 
     def waitForReady(self):
         """
@@ -197,13 +218,20 @@ class DetectorInterface(HardwareInterface):
         Stop the acquisition and emit the latest acquired data.
 
         This method waits for the acquisition worker thread to finish if it is running.
+        Qt events are processed while waiting, so that the GUI is not frozen.
         """
         self._stop()
 
-        if self._thread is not None and self._thread.isRunning():
-            self._thread.quit()
-            self._thread.wait()
+        thread = self._thread
+        if thread is not None and thread.isRunning() and QtCore.QThread.currentThread() is not thread:
+            self.waitForReady()
         self.dataAcquired.emit(self._get())
+        # The data emitted by the acquisition thread is delivered through the event queue.
+        # Emit stopped through the queue too, so that the listeners (e.g. DataStorage) receive all data before it.
+        QtCore.QMetaObject.invokeMethod(self, "_emitStopped", QtCore.Qt.QueuedConnection)
+
+    @QtCore.pyqtSlot()
+    def _emitStopped(self):
         self.stopped.emit()
 
     @property
@@ -264,6 +292,9 @@ class DetectorInterface(HardwareInterface):
         """
         Should be implemented in subclasses to provide device-specific logic for getting acquired data.
 
+        Return the frames acquired since the previous call and remove them from the buffer.
+        This method may be called from any thread while ``_run()`` is running, so it must be atomic with respect to ``_run()`` adding frames.
+
         Returns:
             dict[tuple, np.ndarray]: Mapping of index tuples to their data frames.
 
@@ -275,6 +306,8 @@ class DetectorInterface(HardwareInterface):
     def _stop(self):
         """
         Should be implemented in subclasses to provide device-specific logic for stopping acquisition.
+
+        This method may be called from any thread. ``_run()`` must return promptly after this method is called.
 
         Raises:
             NotImplementedError: If the subclass does not implement this method.
@@ -293,6 +326,9 @@ class DetectorInterface(HardwareInterface):
     def _run(self, iter=1):
         """
         Should be implemented in subclasses to provide device-specific logic for running the acquisition.
+
+        This method runs in the acquisition thread and must not return until the acquisition is completed or ``_stop()`` is called.
+        Emit ``updated`` when new frames are stored.
 
         Args:
             iter(int): Number of iterations. -1 means continuous run.

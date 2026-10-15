@@ -34,6 +34,17 @@ class MultiControllerInterface(HardwareInterface):
     Subclasses must implement device-specific methods: ``_get()``, ``_set()``, ``_isBusy()``, and ``_isAlive()``. 
     ``_get()``, ``_set()``, and ``_isBusy()`` should raise ``RuntimeError`` on communication errors; 
     ``_isAlive()`` should return the current alive state without raising ``RuntimeError`` that interrupts monitoring.
+
+    Requirements for subclasses:
+
+    - **Thread safety**: All methods (``_set()``, ``_get()``, ``_stop()``, ``_isBusy()``, ``_isAlive()`` and any other methods) may be called from any thread at any time, including concurrently.
+      For example, ``_get()``, ``_isBusy()`` and ``_isAlive()`` are called by the background monitoring thread while ``set()``, ``get()`` and ``stop()`` are called by the GUI, scans or scripts.
+      Subclasses must serialize the communication with the instrument (e.g., by a lock shared by all objects using the same connection),
+      including sequences of commands that must not be interleaved.
+    - **Busy state**: ``_isBusy()`` must report ``True`` for an axis as soon as ``_set()`` returns, until the motion is completed.
+      If the instrument reports the motion only after a delay, subclasses must keep the busy state by themselves (e.g., set a flag in ``_set()`` and clear it when the instrument reports completion).
+      If the value is applied before ``_set()`` returns, ``_isBusy()`` may always return ``False``.
+      ``set(wait=True)``, ``waitForReady()`` and scans rely on this to wait for the motion.
     """
 
     #: Signal (dict) emitted when axis values change.
@@ -56,40 +67,50 @@ class MultiControllerInterface(HardwareInterface):
         super().__init__(**kwargs)
         self._info = {name: _AxisInfo() for name in axisNamesAll}
         self._mutex = QtCore.QMutex()
+        self._generation = 0   # incremented every time set() is called
 
-    @lock
     def _loadState(self):
         """
         Poll the device and update the state of all axes.
 
         Emit the ``busyStateChanged`` and ``aliveStateChanged`` signals if any axis state has changed.
         Log any runtime errors that occur during state loading.
+
+        The device is accessed without holding the instance mutex, so that ``set()`` called from other threads (e.g., the GUI) is not blocked during the communication.
+        The states are updated and the signals are emitted while holding the mutex.
         """
+        with QtCore.QMutexLocker(self._mutex):
+            generation = self._generation
+            known = {name: info.busy for name, info in self._info.items()}
+
         try:
             bs = self._isBusy()
-            busyUpdate = {name: b for name, b in bs.items() if b != self._info[name].busy}
-
-            # Emit valueChanged signal if any axis is busy
-            if any(bs.values()) or len(busyUpdate) > 0:
-                vs = self.get()
-                self.valueChanged.emit({name: vs[name] for name, b in bs.items() if b or name in busyUpdate})
-
-            # Update busy state log and emit busyStateChanged signal if any axis has changed its busy state
-            if busyUpdate:
-                for name, b in busyUpdate.items():
-                    self._info[name].busy = b
-                    if b is False:
-                        self._info[name].target = None
-                self.busyStateChanged.emit(busyUpdate)
-
+            changed = [name for name, b in bs.items() if b != known[name]]
+            vs = self.get() if any(bs.values()) or len(changed) > 0 else None
         except RuntimeError as e:
             logging.warning(f"Runtime error in _loadState: {e}")
+            bs = None
+        al = self._isAlive()
 
-        finally:
-            al = self._isAlive()
-            aliveUpdate = {name: a for name, a in al.items() if a != self._info[name].alive}
+        with QtCore.QMutexLocker(self._mutex):
+            if bs is not None:
+                # Emit valueChanged signal if any axis is busy
+                if vs is not None:
+                    self.valueChanged.emit({name: vs[name] for name, b in bs.items() if b or name in changed})
+
+                # Update busy state log and emit busyStateChanged signal if any axis has changed its busy state.
+                # The busy state is discarded if set() was called during the communication, because it may be older than the command.
+                if generation == self._generation:
+                    busyUpdate = {name: b for name, b in bs.items() if b != self._info[name].busy}
+                    if busyUpdate:
+                        for name, b in busyUpdate.items():
+                            self._info[name].busy = b
+                            if b is False:
+                                self._info[name].target = None
+                        self.busyStateChanged.emit(busyUpdate)
 
             # Update alive state if any axis has changed its alive state
+            aliveUpdate = {name: a for name, a in al.items() if a != self._info[name].alive}
             if aliveUpdate:
                 for name, a in aliveUpdate.items():
                     self._info[name].alive = a
@@ -147,6 +168,7 @@ class MultiControllerInterface(HardwareInterface):
 
         # Set actual values for the axes in kwargs
         self._set(**kwargs)
+        self._generation += 1
 
     def get(self, type=dict):
         """
@@ -188,8 +210,9 @@ class MultiControllerInterface(HardwareInterface):
         """
         loop = QtCore.QEventLoop()
 
+        # The busy state updated by the monitoring thread is used, so that the device is not accessed every time.
         def on_busy_changed():
-            if not any(self._isBusy().values()) and loop.isRunning():
+            if not any(info.busy for info in self._info.values()) and loop.isRunning():
                 loop.quit()
 
         with QtCore.QMutexLocker(self._mutex):
@@ -266,6 +289,9 @@ class MultiControllerInterface(HardwareInterface):
     def _isBusy(self):
         """
         Should be implemented in subclasses to provide device-specific logic for determining busy state.
+
+        The busy state must be ``True`` as soon as ``_set()`` returns, until the motion is completed (see the class documentation).
+        This method may be called from any thread.
 
         Returns:
             dict[str, bool]: Mapping of axis names to their busy state.
@@ -413,7 +439,7 @@ class OffsettableMultiMotorInterface(MultiControllerInterface):
         """
         self.valueChanged.emit(self.get())
 
-    def set(self, **kwargs):
+    def set(self, wait=False, lock=True, **kwargs):
         """
         Set target values for axes in user coordinates (stored offsets subtracted).
 
@@ -421,13 +447,15 @@ class OffsettableMultiMotorInterface(MultiControllerInterface):
         For example, calling ``set(x=1.0)`` will result in the value ``1.0 + self.offset.get('x', 0)`` being sent to the underlying controller.
 
         Args:
+            wait (bool, optional): If True, block until all axes become idle after setting. Defaults to False.
+            lock (bool, optional): If True, acquire the instance mutex while applying targets. Defaults to True.
             **kwargs (float): Axis-value pairs in user coordinates.
 
         Returns:
             None
         """
         kwargs = {key: value + self.offset.get(key, 0) for key, value in kwargs.items()}
-        super().set(**kwargs)
+        super().set(wait=wait, lock=lock, **kwargs)
 
     def get(self, type=dict):
         """

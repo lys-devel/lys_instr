@@ -60,6 +60,22 @@ If no indexing is needed, simply omit ``indexShape`` or set ``indexShape=()`` (t
 
 See :doc:`Detector GUI </lys_instr_/tutorial_/detectorGUI>` for displaying non-two-dimensional frames.
 
+Requirements for Implementations
+--------------------------------
+
+Your subclass must satisfy the following requirements, which ``MultiDetectorInterface`` relies on.
+
+**Thread safety**: All methods (``_run()``, ``_get()``, ``_stop()``, ``_isAlive()``, properties and any other methods) may be called from any thread at any time, including concurrently.
+For example, ``_run()`` runs in the acquisition thread, ``_get()`` may be called from the acquisition thread and other threads while ``_run()`` is running,
+``_stop()`` is called by the GUI, scans or scripts, and ``_isAlive()`` is called by the background monitoring thread.
+Protect the shared state and the communication with the instrument by locks.
+In particular, reading and clearing the buffer of acquired frames in ``_get()`` must be atomic with respect to ``_run()`` adding frames.
+
+**Busy state**: The detector is regarded as busy while ``_run()`` is running.
+``_run()`` must not return until the acquisition is completed (all frames are acquired and stored so that ``_get()`` returns them), or until ``_stop()`` is called.
+After ``_stop()`` is called, ``_run()`` must return promptly.
+
+
 
 Step-by-Step Demonstration
 --------------------------

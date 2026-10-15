@@ -40,6 +40,22 @@ For real hardware, you should implement device-specific communication methods in
             return ... a dictionary with axis names as keys and alive states (bool) as values (True if alive, False if not) ...
 
 
+Requirements for Implementations
+--------------------------------
+
+Your subclass must satisfy the following requirements, which ``MultiMotorInterface`` relies on.
+
+**Thread safety**: All methods (``_set()``, ``_get()``, ``_stop()``, ``_isBusy()``, ``_isAlive()`` and any other methods) may be called from any thread at any time, including concurrently.
+For example, ``_get()``, ``_isBusy()`` and ``_isAlive()`` are called by the background monitoring thread, while ``set()``, ``get()`` and ``stop()`` are called by the GUI, scans or scripts.
+Serialize the communication with the instrument in your subclass, for example by a lock shared by all objects that use the same connection.
+Hold the lock during a whole command-response exchange, and during sequences of commands that must not be interleaved.
+
+**Busy state**: ``_isBusy()`` must report ``True`` for an axis as soon as ``_set()`` returns, until the motion is completed.
+If the instrument reports the motion only after a delay, keep the busy state in your subclass (for example, set a flag in ``_set()`` and clear it when the instrument reports completion).
+If the value is applied before ``_set()`` returns (for example, a parameter that is set instantly), ``_isBusy()`` may always return ``False``.
+``set(wait=True)``, ``waitForReady()`` and scans rely on this to wait for the motion.
+
+
 Step-by-Step Demonstration
 --------------------------
 

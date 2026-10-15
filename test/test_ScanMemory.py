@@ -188,6 +188,30 @@ class TestScanAPI(_TempDirTestCase):
         self.assertEqual(sorted(os.listdir("folder")), ["pt_0.npz", "pt_1.npz", "pt_2.npz"])
         self.assertEqual(events, ["started", "finished"])
 
+    def test_file_names(self):
+        # File names use the target values and indices set by the scan, without reading the motor positions.
+        motor = self.scan._motorScanners["x"]
+        calls = []
+        original = motor._get
+        import threading
+        # Count the calls in the main thread (the monitoring thread reads positions while moving).
+        motor._get = lambda: (threading.current_thread() is threading.main_thread() and calls.append(1)) or original()
+        try:
+            self.scan.setScanList([{"name": "x", "range": (0, 0.5, 3)}, {"name": "loop", "range": (0, 1, 2)}, {"name": "y", "range": (1, 0, 2)}])
+            self.scan.setFileName("y{3}_[3]_l{2}_[2]_x{1}_[1]")
+            self.scan.setExposure(0.01)
+            names = []
+            self.storage.pathChanged.connect(lambda: names.append(self.storage.name))
+            self.scan.start()
+            self.assertTrue(self.scan.waitForFinished(60))
+        finally:
+            motor._get = original
+        expected = [f"y1_{k}_l{l}_{l}_x{x:.5g}_{i}" for k in range(2) for l in range(2) for i, x in enumerate([0, 0.5, 1])]
+        self.assertEqual([n for n in names if n.startswith("y")], expected)
+        self.assertEqual(calls, [], "Motor positions should not be read to make file names.")
+        self.assertTrue(self.storage.waitForSaved(5))
+        self.assertEqual(len(os.listdir("folder")), 12)
+
     def test_stop(self):
         self.scan.setScanList([{"name": "x", "range": (0, 1, 100)}])
         self.scan.setFileName("pt_[1]")
@@ -203,3 +227,87 @@ class TestScanAPI(_TempDirTestCase):
         self.scan.start()
         self.assertFalse(self.scan.waitForFinished(0.1))
         self.assertTrue(self.scan.stopAndWait())
+
+
+class TestThreading(_TempDirTestCase):
+
+    def test_stop_does_not_freeze(self):
+        # stop() should process events while waiting for the acquisition thread.
+        from PyQt5 import QtCore, QtTest
+        import time
+        detector = dummy.MultiDetectorDummy(indexShape=(3,), frameShape=(2,), exposure=0.5)
+        self.devices.append(detector)
+        detector.startAcq()
+        QtTest.QTest.qWait(100)
+        ticks = []
+        timer = QtCore.QTimer(interval=20)
+        timer.timeout.connect(lambda: ticks.append(1))
+        timer.start()
+        start = time.perf_counter()
+        detector.stop()
+        elapsed = time.perf_counter() - start
+        timer.stop()
+        self.assertFalse(detector.isBusy, "stop() should return after the acquisition is finished.")
+        self.assertGreater(len(ticks), elapsed / 0.02 / 3, "Events should be processed while stopping.")
+
+    def test_get_in_acquisition_thread(self):
+        # Frames are read from the device in the acquisition thread, and all frames are delivered.
+        import threading
+        detector = dummy.MultiDetectorDummy(indexShape=(20,), frameShape=(2,), exposure=0.01)
+        self.devices.append(detector)
+        where = []
+        original = detector._get
+        detector._get = lambda: where.append(threading.current_thread() is threading.main_thread()) or original()
+        received = {}
+        detector.dataAcquired.connect(received.update)
+        data = detector.startAcq(wait=True, output=True)
+        self.assertEqual(len(data), 20)
+        self.assertEqual(len(received), 20)
+        self.assertNotIn(True, where, "_get() should not be called in the main thread during acquisition.")
+        self.assertEqual(detector.receivers(detector.updated), 0, "Connections for the acquisition should be removed.")
+
+    def test_start_stop_repeatedly(self):
+        from PyQt5 import QtTest
+        detector = dummy.MultiDetectorDummy(indexShape=(5,), frameShape=(2,), exposure=0.01)
+        self.devices.append(detector)
+        for i in range(30):
+            detector.startAcq()
+            if i % 2:
+                QtTest.QTest.qWait(10)
+            detector.stop()
+        self.assertFalse(detector.isBusy)
+        data = detector.startAcq(wait=True, output=True)
+        self.assertEqual(len(data), 5)
+
+    def test_set_not_blocked_by_polling(self):
+        import time
+
+        class SlowMotor(dummy.MultiMotorDummy):
+            def _isBusy(self):
+                time.sleep(0.3)
+                return super()._isBusy()
+
+        motor = SlowMotor("x", speed=10)
+        self.devices.append(motor)
+        from PyQt5 import QtTest
+        QtTest.QTest.qWait(400)
+        latency = []
+        for i in range(3):
+            start = time.perf_counter()
+            motor.set(x=i + 1)
+            latency.append(time.perf_counter() - start)
+            motor.waitForReady()
+        self.assertLess(max(latency), 0.1, "set() should not wait for the polling communication.")
+
+        # set(wait=True) should wait until the motion is completed even with slow polling.
+        motor.set(x=10, wait=True)
+        self.assertAlmostEqual(motor.get()["x"], 10)
+        self.assertFalse(motor.isBusy["x"])
+
+    def test_offset_set_wait(self):
+        motor = self.motor("x")
+        motor.offset["x"] = 1
+        motor.set(x=2, wait=True)
+        self.assertAlmostEqual(motor.get()["x"], 2)
+        self.assertAlmostEqual(motor._get()["x"], 3)
+        motor.offset["x"] = 0

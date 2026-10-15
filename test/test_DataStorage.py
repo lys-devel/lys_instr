@@ -516,6 +516,20 @@ class TestDataStorageFeatures(unittest.TestCase):
         self.assertTrue(self.storage.waitForSaved(5))
         self.assertTrue(self.load("data_1.npz").note["Stopped"])
 
+    def test_stop_saves_all_frames(self):
+        # All frames acquired before stop() should be saved.
+        for k in range(3):
+            detector = self.detector(indexShape=(40,), frameShape=(2,), exposure=0.02)
+            acquired = []
+            detector.updated.connect(lambda: acquired.append(1), QtCore.Qt.DirectConnection)
+            detector.startAcq()
+            QtTest.QTest.qWait(300 + 50 * k)
+            detector.stop()
+            self.assertTrue(self.storage.waitForSaved(5))
+            w = self.load(f"data_{k}.npz")
+            self.assertTrue(w.note["Stopped"])
+            self.assertEqual(int((~np.isnan(w.data[:, 0])).sum()), len(acquired))
+
     def test_repeat(self):
         detector = self.detector(indexShape=(2,), frameShape=(3,), exposure=0.01)
         received = []

@@ -762,8 +762,10 @@ class ScanWidget(QtWidgets.QWidget):
         """
         process = _DetectorProcess(self._detectors[self._detectorsBox.currentText()], self._exposure.value())
         process.rejected.connect(self._acquisitionRejected)
+        self._processes = []
         for s in self._list:
             process = _ScanProcess(s.scanName, s.scanObj, s.scanRange, process)
+            self._processes.append(process)
 
         self._oldNumbered = self._storage.numbered
         self._oldEnabled = self._storage.enabled
@@ -772,7 +774,6 @@ class ScanWidget(QtWidgets.QWidget):
         self._storage.tagRequest.connect(self._setScanNames)
         self._name = self._nameBox.text
 
-        self._loopCounts = {i: [0, 0] for i, _ in enumerate(self._list) if self._list[i].scanName == "loop"}
 
         self._worker = _ScanWorker(process)
         # The thread has no parent so that it is not destroyed with this widget while running.
@@ -809,28 +810,17 @@ class ScanWidget(QtWidgets.QWidget):
         self._storage.enabled = self._oldEnabled
         self._storage.tagRequest.disconnect(self._setScanNames)
 
-        if hasattr(self, "_loopCounts"):
-            del self._loopCounts
         self.scanFinished.emit()
 
     def _updateName(self):
         """
         Update the storage file name using current scan parameter values.
         """
+        # Use the target values set by the scan, so that the devices are not accessed in the main thread.
         name = str(self._name)
         for i, scan in enumerate(self._list):
-            if scan.scanName == "loop":
-                num = int(self._loopCounts[i][0])
-                value = num
-                index = num
-                n = np.prod([len(self._list[j].scanRange) for j in range(i)])
-                self._loopCounts[i][1] += 1
-                self._loopCounts[i][0] += self._loopCounts[i][1] // n
-                self._loopCounts[i][0] %= len(scan.scanRange)
-                self._loopCounts[i][1] %= n
-            else:
-                value = scan.scanObj.get()[scan.scanName]
-                index = scan.scanIndex
+            index = self._processes[i].currentIndex
+            value = index if scan.scanName == "loop" else self._processes[i].currentValue
             name = name.replace("{" + str(i + 1) + "}", value) if type(value) == str else name.replace("{" + str(i + 1) + "}", f"{value:.5g}")
             name = name.replace("[" + str(i + 1) + "]", str(index))
         self._storage.name = name
@@ -1281,6 +1271,8 @@ class _ScanProcess(QtCore.QObject):
         self._shouldStop = False
         self._finished = False
         self._stopPending = False
+        self.currentIndex = None
+        self.currentValue = None
         self._process.beforeAcquisition.connect(self.beforeAcquisition.emit)
         self._process.finished.connect(self._next)
 
@@ -1317,6 +1309,8 @@ class _ScanProcess(QtCore.QObject):
             return
 
         value = self._values[self._index]
+        self.currentIndex = self._index
+        self.currentValue = value
         self._index += 1
         self._obj.set(**{self._name: value}, wait=True)
         self._process.start()
